@@ -21,6 +21,7 @@
 #define nmax 35
 #define BLOCK_SIZE 1024
 #define n_M 40
+//TODO: define simga
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
