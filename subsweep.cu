@@ -13,8 +13,24 @@ __device__ void cpy_to_Dsh(float * D_sh, float * disk, int cell_index, int atom_
 }
 
 
-__device__ random_shuffle(float * D_sh, int atom_counts){
+__device__ void random_shuffle(float * D_sh, int atom_counts){
     //TODO: shuffle this
+}
+
+__device__ void proposed_move(float * proposed_move, float * D_sh, int i)
+{
+    //TODO: implement this
+}
+
+__device__ short accept_move(float * proposed_move)
+{
+    //TODO: implement this
+}
+
+__device__ void cpy_proposed_to_D_sh(float * D_sh, float * proposed_move, int i) {
+    for (int j = 0; i < 3; j++) {
+        D_sh[j * nmax + i]  = proposed_move[j];
+    }
 }
 
 __global__ void subsweep_kernel(float* r, float * disk, short int *n, short int * offset){
@@ -30,6 +46,15 @@ __global__ void subsweep_kernel(float* r, float * disk, short int *n, short int 
     random_shuffle(D_sh, atom_counts);
 
     int i = 0;
+    float proposed_move[3];
     for (int s = 0; s < n_M; n++){
+        propose_move(proposed_move, D_sh, i);
+        if accept_move(proposed_move){
+            cpy_proposed_to_D_sh(D_sh, proposed_move, i);
+        }
+        i += 1;
+        if (i >= atom_counts){
+            i = 0;
+        }
     }
 }
