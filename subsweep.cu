@@ -12,9 +12,26 @@ __device__ void cpy_to_Dsh(float * D_sh, float * disk, int cell_index, int atom_
     }
 }
 
+__device__ int random_int(curandState_t * random_state, int range) {
+    return ((int) curand_uniform(random_state)) % (range + 1);
+}
+
+
+__device__ swap(float *a, float *b){
+    float temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
 
 __device__ void random_shuffle(float * D_sh, int atom_counts){
-    //TODO: shuffle this
+    int j;
+    for (int i = atom_counts - 1; i >= 0; i--){
+        j = random_int(i);
+        for (int dim = 0; dim < 3; dim ++){
+            swap(D_sh + dim * nmax + i, D_sh + dim * nmax + j);
+        }
+    }
 }
 
 __device__ void proposed_move(float * proposed_move, float * D_sh, int i)
@@ -40,8 +57,15 @@ __global__ void subsweep_kernel(float* r, float * disk, short int *n, short int 
 
     int cell_index = get_cell_index(cell_x, cell_y, cell_z);
     int atom_counts = n[cell_index]
+    if (atom_counts == 0){
+        return;
+    }
 
-	__shared__ short float D_sh[CPS3];
+    curandState_t localRandomState;
+    int id = x + y * blockDim.x * gridDim.x + z * blockDim.x * gridDim.x * blockDim.y * gridDim.y;
+    curand_init(1234, id, 0, &localRandomState);
+
+	__shared__ float D_sh[nmax * 3];
     cpy_to_Dsh(D_sh, disk, cell_index, atom_counts);
     random_shuffle(D_sh, atom_counts);
 
