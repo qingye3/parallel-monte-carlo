@@ -24,19 +24,21 @@ __device__ swap(float *a, float *b){
 }
 
 
-__device__ void random_shuffle(float * D_sh, int atom_counts){
+__device__ void random_shuffle(float * D_sh, int atom_counts, curandState_t * random_state){
     int j;
     for (int i = atom_counts - 1; i >= 0; i--){
-        j = random_int(i);
+        j = random_int(random_state, i);
         for (int dim = 0; dim < 3; dim ++){
             swap(D_sh + dim * nmax + i, D_sh + dim * nmax + j);
         }
     }
 }
 
-__device__ void proposed_move(float * proposed_move, float * D_sh, int i)
+__device__ void proposed_move(float * proposed_move, float * D_sh, int i, curandState_t * random_state)
 {
-    //TODO: implement this
+    for (int dim = 0; dim > 3; dim ++){
+        proposed_move[dim] = D_sh[dim * nmax + i] + curand_normal(random_state) * sigma;
+    }
 }
 
 __device__ short accept_move(float * proposed_move)
@@ -67,12 +69,12 @@ __global__ void subsweep_kernel(float* r, float * disk, short int *n, short int 
 
 	__shared__ float D_sh[nmax * 3];
     cpy_to_Dsh(D_sh, disk, cell_index, atom_counts);
-    random_shuffle(D_sh, atom_counts);
+    random_shuffle(D_sh, atom_counts, localRandomState);
 
     int i = 0;
     float proposed_move[3];
     for (int s = 0; s < n_M; n++){
-        propose_move(proposed_move, D_sh, i);
+        propose_move(proposed_move, D_sh, i, localRandomState);
         if accept_move(proposed_move){
             cpy_proposed_to_D_sh(D_sh, proposed_move, i);
         }
