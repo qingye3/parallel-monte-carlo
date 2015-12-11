@@ -20,6 +20,7 @@
 #define w 3
 #define nmax 35
 #define BLOCK_SIZE 1024
+#define n_M 40
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
@@ -216,10 +217,6 @@ int main(){
 	}
 	if (total != N_ATOMS){ printf("Sanity check failed! All atoms may not be assigned to grids.\nPlease uncomment the appropriate code for sanity check to run or check the assign kernel parameters\n"); }
 	else{ printf("Sanity check passed!\n"); }
-
-
-
-
 
 	// sub-sweep kernel
 
