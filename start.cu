@@ -11,14 +11,14 @@
 #include <string.h>
 
 
-#define N_ATOMS 1331
-#define L 11.6328f
+#define N_ATOMS 64
+#define L 10
 #define beta 0.3
 #define cellsPerSide 4
-#define w 3
-#define nmax 35
+#define w 2.5
+#define nmax 30
 #define BLOCK_SIZE 1024
-#define n_M 40
+#define n_M 10
 #define sigma 0.5
 #define dimCB 8
 
@@ -147,8 +147,8 @@ __global__ void assign(float*r, float* disk, short int*n){
 // Sub-sweep kernel
 
 // cell redraw boundaries kernel
-void itoa(char * r, int n){
-    r[2] = n % 2;
+void itoa(int * r, int n){
+	r[2] = n % 2;
     r[1] = (n/2) % 2;
     r[0] = (n/4) % 2;
 }
@@ -178,15 +178,17 @@ int main(){
     int i;
 	int f;
 	float d;
-    char * r;
+    int * off;
+	int * d_off;
 
-    r = (char *) malloc(sizeof(char) * 3);
+    off = (int *) malloc(sizeof(int) * 3);
 
 	// allocate space on GPU
 	cudaMalloc((void **)&d_r, rsize);
 	cudaMalloc((void **)&d_disk, disksize);
 	cudaMalloc((void **)&d_n, nsize);
 	cudaMalloc((void **)&disk_dbl, disksize);
+	cudaMalloc((void **)&d_off, sizeof(int) * 3);
 
 	// initialize positions
 	int N_cube = int(cbrt(float(N_ATOMS)));
@@ -196,7 +198,7 @@ int main(){
 	init_r << <gridSize, blockSize >> >(d_r, N_cube);
 	state = cudaDeviceSynchronize();
 	if (state != cudaSuccess){
-		printf("Init r kernel failed : ", cudaGetErrorString(state));
+		printf("Init r kernel failed : %s", cudaGetErrorString(state));
 	}
 
 	// Check positions generated on GPU
@@ -211,25 +213,31 @@ int main(){
 	assign << <int(ceil(float(CPS3)/BLOCK_SIZE)), BLOCK_SIZE >> >(d_r, d_disk, d_n);
 	state = cudaDeviceSynchronize();
 	if (state != cudaSuccess){
-		printf("Assign kernel failed : ", cudaGetErrorString(state));
+		printf("Assign kernel failed : %s", cudaGetErrorString(state));
 	}
-	
+	dim3 blockSize1(cellsPerSide, cellsPerSide, cellsPerSide);
     FY_Shuffle(cboard_index, dimCB);
     for(i = 0; i < dimCB; i++){
-        itoa(r, cboard_index[i]);
+        itoa(off, cboard_index[i]);
+		cudaMemcpy(d_off, off, sizeof(int) * 3, cudaMemcpyHostToDevice);
         // sub-sweep kernel
-            subsweep_kernel<<<int(ceil(float(CPS3)/BLOCK_SIZE)), CPS3>>>(d_disk,d_n,r);
-            state = cudaDeviceSynchronize();
-            if (state != cudaSuccess){
-                printf("Subsweep failed : ", cudaGetErrorString(state));
-            }
+		//puts(r);
+
+
+
+        subsweep_kernel<<<1, blockSize1>>>(d_disk,d_n,d_off);
+        state = cudaDeviceSynchronize();
+        if (state != cudaSuccess){
+                printf("Subsweep failed : %s\n", cudaGetErrorString(state));
+        }
         f = rand()%3 - 1;
         d = float (rand())/RAND_MAX * w - w/2.0f;
         // cell redraw boundaries kernel
-            shiftCells<<<int(ceil(float(CPS3)/BLOCK_SIZE)), CPS3>>>(d_disk, d_n, f, d, disk_dbl);
+        shiftCells<<<1, blockSize1>>>(d_disk, d_n, f, d, disk_dbl);
     }
 
-    free(r);
+    free(off);
+	cudaFree(d_off);
 	cudaFree(d_r);
 	cudaFree(d_disk);
 	cudaFree(d_n);

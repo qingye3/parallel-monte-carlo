@@ -190,39 +190,56 @@ __device__ void cpy_proposed_to_D_sh(float * D_sh, float * proposed_move, int i)
         D_sh[j * nmax + i]  = proposed_move[j];
     }
 }
+__device__ void print_D_sh(float * D_sh){
+	for (int i = 0; i < nmax*3; i++){
+		printf("D_sh[%i] = %f\n", i, D_sh[i]);
+	}
+}
 
-__global__ void subsweep_kernel(float * disk, short int *n, char * offset){
-    int cell_x = 2*(blockIdx.x * blockDim.x + threadIdx.x) + offset[0];
-    int cell_y = 2*(blockIdx.y * blockDim.y + threadIdx.y) + offset[1];
-    int cell_z = 2*(blockIdx.z * blockDim.z + threadIdx.z) + offset[2];
 
+__global__ void subsweep_kernel(float * disk, short int *n, int * offset){
+	
+	int cell_x = 2 * (blockIdx.x * blockDim.x + threadIdx.x)+offset[0];
+	int cell_y = 2 * (blockIdx.y * blockDim.y + threadIdx.y) +offset[1];
+	int cell_z = 2 * (blockIdx.z * blockDim.z + threadIdx.z) +offset[2];
+	
     int cell_index = get_cell_index(cell_x, cell_y, cell_z);
-    int atom_counts = n[cell_index];
-    if (atom_counts == 0){
-        return;
-    }
+	if (cell_x < cellsPerSide && cell_y < cellsPerSide && cell_z < cellsPerSide){
+		int atom_counts = n[cell_index];
+		if (atom_counts == 0){
+			return;
+		}
+		if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("Atom counts = %i", atom_counts); }
+		curandState_t localRandomState;
+		// define x and y here
+		int id = cell_x + cell_y * blockDim.x * gridDim.x + cell_z * blockDim.x * gridDim.x * blockDim.y * gridDim.y;
+		curand_init(1234, id, 0, &localRandomState);
+		if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0){ printf("RNG 1 done! \n"); }
+		if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("RNG 0 done! \n"); }
+		__shared__ float D_sh[nmax * 3];
+		cpy_to_Dsh(D_sh, disk, cell_index, atom_counts);
+		__syncthreads();
+		random_shuffle(D_sh, atom_counts, &localRandomState);
+		if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("shuffle 0 done! \n"); }
+		if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0){ printf("shuffle 1 done! \n"); }
+		if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0){ print_D_sh(D_sh); }
+		int i = 0;
+		float proposed_move[3];
+		for (int s = 0; s < n_M; n++){
+			make_move(proposed_move, D_sh, i, &localRandomState);
+			if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("make move 0 done! \n"); }
+			if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0){ printf("make move 1 done! \n"); }
 
-    curandState_t localRandomState;
-    // define x and y here
-    int id = cell_x + cell_y * blockDim.x * gridDim.x + cell_z * blockDim.x * gridDim.x * blockDim.y * gridDim.y;
-    curand_init(1234, id, 0, &localRandomState);
-
-	__shared__ float D_sh[nmax * 3];
-    cpy_to_Dsh(D_sh, disk, cell_index, atom_counts);
-    __syncthreads();
-    random_shuffle(D_sh, atom_counts, &localRandomState);
-    
-    int i = 0;
-    float proposed_move[3];
-    for (int s = 0; s < n_M; n++){
-        make_move(proposed_move, D_sh, i, &localRandomState);
-        if (accept_move(proposed_move, cell_x, cell_y, cell_z, disk, D_sh, i, &localRandomState, atom_counts, n)){
-            cpy_proposed_to_D_sh(D_sh, proposed_move, i);
-        }
-        i += 1;
-        if (i >= atom_counts){
-            i = 0;
-        }
-    }
-    cpy_D_sh_to_Disk(D_sh, disk, cell_index, atom_counts);
+			if (accept_move(proposed_move, cell_x, cell_y, cell_z, disk, D_sh, i, &localRandomState, atom_counts, n)){
+				cpy_proposed_to_D_sh(D_sh, proposed_move, i);
+			}
+			i += 1;
+			if (threadIdx.x == 0){ printf("pr make move 0 done! \n"); }
+			if (threadIdx.x == 1){ printf("pr make move 1 done! \n"); }
+			if (i >= atom_counts){
+				i = 0;
+			}
+		}
+		cpy_D_sh_to_Disk(D_sh, disk, cell_index, atom_counts);
+	}
 }
