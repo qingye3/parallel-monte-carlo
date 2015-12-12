@@ -9,7 +9,6 @@
 #include <curand_kernel.h>
 #include <time.h>
 #include <string.h>
-#include <thrust\sort.h>
 #include "device_atomic_functions.h"
 
 
@@ -22,6 +21,9 @@
 #define BLOCK_SIZE 1024
 #define n_M 40
 #define simga 0.5
+#define dimCB 8
+
+#include "subsweep.h"
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
@@ -29,9 +31,9 @@ const int CPS3 = CPS2*cellsPerSide;
 
 
 // Fisher Yates shuffle as described on wiki
-void FY_Shuffle(float * a, int n){
+void FY_Shuffle(int * a, int n){
 	int i, randindex;
-	float temp;
+	int temp;
 	srand(time(NULL));
 	for (i = n - 1; i > 0; i--){
 		randindex = rand() % (i + 1);
@@ -162,6 +164,8 @@ int main(){
 	float* d_r;
 	float * disk;
 	float * d_disk;
+	float * disk_dbl;
+	float * n_dbl;
 	short int * n;
 	short int * d_n;
 	cudaError_t state;
@@ -169,6 +173,10 @@ int main(){
 	int rsize = 3 * N_ATOMS * sizeof(float);
 	int nsize = sizeof(short int) * CPS3;
 	int disksize = sizeof(float) * 3 * nmax * CPS3;
+    	int cboard_index[8]= {0,1,2,3,4,5,6,7};
+    	int ii, i;
+	int f;
+	float d;
 
 	// allocate space on CPU
 	r = (float *)malloc(rsize);
@@ -179,6 +187,8 @@ int main(){
 	cudaMalloc((void **)&d_r, rsize);
 	cudaMalloc((void **)&d_disk, disksize);
 	cudaMalloc((void **)&d_n, nsize);
+	cudaMalloc((void **)&disk_dbl, disksize);
+	cudaMalloc((void **)&n_dbl, nsize);
 
 	// initialize positions
 	int N_cube = int(cbrt(float(N_ATOMS)));
@@ -207,24 +217,34 @@ int main(){
 	}
 	//check assignment kernel
 	short int total = 0;
-	cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
-	cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
-	for (int ii = 0; ii < nsize / sizeof(short int); ii++){
-		printf("# particles in cell %i : %i\n", ii, n[ii]);
-		total += n[ii];
+	//cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
+	//cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
+	//for (ii = 0; ii < nsize / sizeof(short int); ii++){
+	//	printf("# particles in cell %i : %i\n", ii, n[ii]);
+	//	total += n[ii];
 		/*for (int j = 0; j < n[ii]; j++){
 			printf("Particle %i at : %f %f %f\n", j, disk[j + ii*nmax * 3], disk[j + ii*nmax * 3 + nmax], disk[j + ii*nmax * 3 + 2*nmax]);
 		}*/
 	}
-	if (total != N_ATOMS){ printf("Sanity check failed! All atoms may not be assigned to grids.\nPlease uncomment the appropriate code for sanity check to run or check the assign kernel parameters\n"); }
-	else{ printf("Sanity check passed!\n"); }
-
-	// sub-sweep kernel
-
-	// cell redraw boundaries kernel
-
-	// memcpy results to CPU
-
+	//if (total != N_ATOMS){ printf("Sanity check failed! All atoms may not be assigned to grids.\nPlease uncomment the appropriate code for sanity check to run or check the assign kernel parameters\n"); }
+	//else{ printf("Sanity check passed!\n"); }
+    	FY_Shuffle(cboard_index, dimCB);
+    	for(i = 0; i < dimCB; i++){
+        	r = itoa(cboard_index[i],2);
+		// sub-sweep kernel
+    		subsweep_kernel<<<int(ceil(float(CPS3)/BLOCK_SIZE)), CPS3>>>(d_disk,d_n,r);
+    		state = cudaDeviceSynchronize();
+    		if (state != cudaSuccess){
+        		printf("Subsweep failed : ", cudaGetErrorString(state));
+    		}
+		f = rand()%3 - 1;
+		d = float (rand())/RAND_MAX * w - w/2.0f;
+		// cell redraw boundaries kernel
+    		shiftCells<<<int(ceil(float(CPS3)/BLOCK_SIZE)), CPS3>>>(d_disk, d_n, f, d, disk_dbl, n_dbl);
+		// memcpy results to CPU
+		cudaMemcpy(disk_dbl, disk, disksize, cudaMemcpyDevicetoDevice);
+		cudaMemcpy(n_dbl, n, nsize, cudaMemcpyDevicetoDevice);
+	}
 	// Have fun! Grab a drink! 
 	// changed a line
 }

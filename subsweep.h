@@ -191,7 +191,7 @@ __device__ void cpy_proposed_to_D_sh(float * D_sh, float * proposed_move, int i)
     }
 }
 
-__global__ void subsweep_kernel(float * disk, short int *n, short int * offset){
+__global__ void subsweep_kernel(float * disk, short int *n, char * offset){
     int cell_x = 2*(blockIdx.x * blockDim.x + threadIdx.x) + off[0];
     int cell_y = 2*(blockIdx.y * blockDim.y + threadIdx.y) + off[1];
     int cell_z = 2*(blockIdx.z * blockDim.z + threadIdx.z) + off[2];
@@ -209,8 +209,9 @@ __global__ void subsweep_kernel(float * disk, short int *n, short int * offset){
 
 	__shared__ float D_sh[nmax * 3];
     cpy_to_Dsh(D_sh, disk, cell_index, atom_counts);
+    __syncthreads();
     random_shuffle(D_sh, atom_counts, localRandomState);
-
+    
     int i = 0;
     float proposed_move[3];
     for (int s = 0; s < n_M; n++){
