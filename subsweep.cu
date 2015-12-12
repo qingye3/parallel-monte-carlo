@@ -12,6 +12,15 @@ __device__ void cpy_to_Dsh(float * D_sh, float * disk, int cell_index, int atom_
     }
 }
 
+__device__ void cpy_D_sh_to_Disk(float * D_sh, float * disk, int cell_index, int atom_counts){
+    int disk_index = cell_index * 3 * nmax;
+    for (int i = 0; i < atom_counts; i++){
+        disk[disk_index + i] = D_sh[i]; 
+        disk[disk_index + nmax + i] = D_sh[i + nmax]; 
+        disk[disk_index + nmax * 2 + i] = D_sh[i + 2*nmax];
+    }
+}
+
 __device__ int random_int(curandState_t * random_state, int range) {
     return ((int) curand_uniform(random_state)) % (range + 1);
 }
@@ -37,16 +46,14 @@ __device__ void random_shuffle(float * D_sh, int atom_counts, curandState_t * ra
 __device__ void proposed_move(float * proposed_move, float * D_sh, int i, curandState_t * random_state)
 {
     for (int dim = 0; dim > 3; dim ++){
-    	// same seed for all dimensions?
         proposed_move[dim] = D_sh[dim * nmax + i] + curand_normal(random_state) * sigma;
     }
 }
-// return type boolean not short?
-__device__ short out_of_bound(float * proposed_move, int cell_x, int cell_y, int cell_z){
-    //my bad : the formula should be -- cell_x*w - L/2 + w/2 
-    float x = (cell_x * w - L / 2) / 2;
-    float y = (cell_y * w - L / 2) / 2;
-    float z = (cell_z * w - L / 2) / 2;
+
+__device__ bool out_of_bound(float * proposed_move, int cell_x, int cell_y, int cell_z){
+    float x = cell_x * w - L / 2 + w / 2;
+    float y = cell_y * w - L / 2 + w / 2;
+    float z = cell_z * w - L / 2 + w / 2;
     if (((proposed_move[0] - x) > L / 2 )|| ((proposed_move[0] - x) < - L / 2)){
         return false;
     }
@@ -58,22 +65,110 @@ __device__ short out_of_bound(float * proposed_move, int cell_x, int cell_y, int
     }
     return true;
 }
-float calculate_energy_in_cell(float * D_sh, int i, float * position){
-    //TODO: implement this
+
+__device__ float calculate_pair_energy(float * the_atom, float * other_atom){
+    float dist = 0, power6, dd;
+    for (dim = 0; dim < 3; dim ++){
+        dd = the_atom[0] - other_atom[0];
+        dist += dd * dd;
+    }
+    dist = sqrtf(dist);
+    if (dist > w){
+        return 0;
+    }
+    power6 = __powf(dist,-6);
+    return 4.0f*(power6*power6 - power6);
+}
+
+__device__ float calculate_energy_in_cell(float * D_sh, float * the_atom, int i, int atom_counts){
+    float e = 0;
+    float other_atom[3];
+    for (int j = 0; j < atom_counts; j++){
+        if (j != i){
+            for (int dim = 0; dim < 3; dim ++){
+                other_atom[dim] = D_sh[dim * nmax + i];
+            }
+            e += calculate_pair_energy(the_atom, other_atom);
+        }
+    }
+    return e;
+}
+
+__device__ void get_neighbors(int * neighbors,int cell_x,int cell_y,int cell_z){
+    int helper[3] = {-1, 0, 1};
+    for (i = 0; i < 3; i ++){
+        for (j = 0; j < 3; j ++){
+            for (k = 0; k < 3; k ++){
+                if (i == 0 && j == 0 && k == 0){
+                    continue;
+                }
+                x = cell_x + helper[i];
+                y = cell_y + helper[j];
+                z = cell_z + helper[k];
+                x = (x + cellsPerSide) % cellsPerSide;
+                y = (y + cellsPerSide) % cellsPerSide;
+                z = (z + cellsPerSide) % cellsPerSide;
+                neighbors[i*9 + j*3 + k] = get_cell_index(x, y, z);
+            }
+        }
+    }
+}
+
+__device__ apply_PBC(float * other_atom, float * the_atom)
+{
+    for (int dim = 0; dim < 3; dim++){
+        if (other_atom[dim] - the_atom[dim] > 2*w)
+        {
+            other_atom[dim] -= L;
+        }
+        if (other_atom[dim] - the_atom[dim] < -2*w)
+        {
+            other_atom[dim] += L;
+        }
+    }
+}
+
+__device__ calculate_energy_in_neighbors(float * disk, float * the_atom, int * n, int cell_x, int cell_y, int cell_z){
+    int neighbors[26];
+    get_neighbors(neighbors, cell_x, cell_y, cell_z);
+
+    float e = 0;
+    float other_atom[3];
+    int nb_cell_index;
+    for (int j = 0; j < 26; j++){
+        nb_cell_index = neighbors[j];
+        for (int k = 0; k < n[nb_cell_index]; k++)
+        {
+            for (int dim = 0; dim < 3; dim ++){
+                other_atom[dim] = disk[nb_cell_index*3*nmax + nmax*dim + k];
+            }
+            apply_PBC(other_atom, the_atom);
+            e += calculate_pair_energy(the_atom, other_atom);
+
+        }
+    }
+    return e;
 }
 
 
-float calculate_old_energy(int cell_x, int cell_y, int cell_z, float * D_sh, float * disk, int i, int atom_counts, short int * n){
-    //TODO: implement this
+__device__ float calculate_old_energy(int cell_x, int cell_y, int cell_z, float * D_sh, float * disk, int i, int atom_counts, short int * n){
+    float atom_positions[3];
+    for (int dim = 0; dim < 3; dim ++){
+        atom_positions[dim] = D_sh[dim * nmax + i];
+    }
+    float e = calculate_energy_in_cell(D_sh, atom_positions, i, atom_counts);
+    e += calculate_energy_in_neighbors(disk, atom_positions, n, cell_x, cell_y, cell_z)
+    return e;
 }
 
-float calculate_new_energy(float * proposed_move, int cell_x, int cell_y, int cell_z, float * D_sh, float * disk, int i, int atom_counts, short int * n){
-    //TODO: implement this
+__device__ float calculate_new_energy(float * proposed_move, int cell_x, int cell_y, int cell_z, float * D_sh, float * disk, int i, int atom_counts, short int * n){
+    float e = calculate_energy_in_cell(D_sh, proposed_move, i, atom_counts);
+    e += calculate_energy_in_neighbors(disk, proposed_move, n, cell_x, cell_y, cell_z)
+    return e;
 }
 
 
-// return type boolean, right? not short
-__device__ short accept_move(float * proposed_move, int cell_x, int cell_y, int cell_z, float * disk, float * D_sh, int i, curandState_t * randomState, int atom_counts, short int * n)
+__device__ bool accept_move(float * proposed_move, int cell_x, int cell_y, int cell_z, float * disk, float * D_sh, int i, curandState_t * randomState, int atom_counts, short int * n)
 {
     if (out_of_bound(proposed_move)){
         return false;
@@ -109,7 +204,7 @@ __global__ void subsweep_kernel(float * disk, short int *n, short int * offset){
 
     curandState_t localRandomState;
     // define x and y here
-    int id = x + y * blockDim.x * gridDim.x + z * blockDim.x * gridDim.x * blockDim.y * gridDim.y;
+    int id = cell_x + cell_y * blockDim.x * gridDim.x + cell_z * blockDim.x * gridDim.x * blockDim.y * gridDim.y;
     curand_init(1234, id, 0, &localRandomState);
 
 	__shared__ float D_sh[nmax * 3];
@@ -128,4 +223,5 @@ __global__ void subsweep_kernel(float * disk, short int *n, short int * offset){
             i = 0;
         }
     }
+    cpy_D_sh_to_Disk(D_sh, disk, cell_index, atom_counts);
 }
