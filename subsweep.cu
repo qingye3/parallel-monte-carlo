@@ -37,11 +37,13 @@ __device__ void random_shuffle(float * D_sh, int atom_counts, curandState_t * ra
 __device__ void proposed_move(float * proposed_move, float * D_sh, int i, curandState_t * random_state)
 {
     for (int dim = 0; dim > 3; dim ++){
+    	// same seed for all dimensions?
         proposed_move[dim] = D_sh[dim * nmax + i] + curand_normal(random_state) * sigma;
     }
 }
-
+// return type boolean not short?
 __device__ short out_of_bound(float * proposed_move, int cell_x, int cell_y, int cell_z){
+    //my bad : the formula should be -- cell_x*w - L/2 + w/2 
     float x = (cell_x * w - L / 2) / 2;
     float y = (cell_y * w - L / 2) / 2;
     float z = (cell_z * w - L / 2) / 2;
@@ -70,7 +72,7 @@ float calculate_new_energy(float * proposed_move, int cell_x, int cell_y, int ce
 }
 
 
-
+// return type boolean, right? not short
 __device__ short accept_move(float * proposed_move, int cell_x, int cell_y, int cell_z, float * disk, float * D_sh, int i, curandState_t * randomState, int atom_counts, short int * n)
 {
     if (out_of_bound(proposed_move)){
@@ -106,6 +108,7 @@ __global__ void subsweep_kernel(float * disk, short int *n, short int * offset){
     }
 
     curandState_t localRandomState;
+    // define x and y here
     int id = x + y * blockDim.x * gridDim.x + z * blockDim.x * gridDim.x * blockDim.y * gridDim.y;
     curand_init(1234, id, 0, &localRandomState);
 
