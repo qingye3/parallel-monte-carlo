@@ -90,11 +90,11 @@ __device__ bool out_of_bound(float * proposed_move, int cell_x, int cell_y, int 
 __device__ float calculate_pair_energy(float * the_atom, float * other_atom){
     float dist = 0, power6, dd;
     for (int dim = 0; dim < 3; dim ++){
-        dd = the_atom[0] - other_atom[0];
+        dd = the_atom[dim] - other_atom[dim];
         dist += dd * dd;
     }
     dist = sqrtf(dist);
-	if (dist < 1.0f && threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0){ printf("Watch your step! "); print_3f(the_atom); print_3f(other_atom); }
+	//if (dist < 1.0f && threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0){ printf("Watch your step! "); print_3f(the_atom); print_3f(other_atom); }
     if (dist > w){
         return 0;
     }
@@ -103,7 +103,7 @@ __device__ float calculate_pair_energy(float * the_atom, float * other_atom){
 }
 
 __device__ float calculate_energy_in_cell(float * D_sh, float * the_atom, int i, int atom_counts, int index){
-    float e = 0;
+    float e = 0.0f;
     float other_atom[3];
     for (int j = 0; j < atom_counts; j++){
         if (j != i){
@@ -204,7 +204,7 @@ __device__ bool accept_move(float * proposed_move, int cell_x, int cell_y, int c
     float old_energy = calculate_old_energy(cell_x, cell_y, cell_z, D_sh, disk, i, atom_counts, n, index);
 	//if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("old 0 done! \n"); }
     float new_energy = calculate_new_energy(proposed_move, cell_x, cell_y, cell_z, D_sh, disk, i, atom_counts, n ,index);
-	if (threadIdx.x == 1 && threadIdx.y == 1 && threadIdx.z == 1){ printf("old E = %f \t new E = %f\n", old_energy, new_energy); }
+	//if (threadIdx.x == 1 && threadIdx.y == 1 && threadIdx.z == 1){ printf("old E = %f \t new E = %f\n", old_energy, new_energy); }
 	//if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("new 0 done! \n"); }
     if (new_energy < old_energy){
         return true;
@@ -243,16 +243,16 @@ __global__ void subsweep_kernel(float * disk, short int *n, int * offset){
 	int cell_y = 2 * (blockIdx.y * blockDim.y + threadIdx.y) +offset[1];
 	int cell_z = 2 * (blockIdx.z * blockDim.z + threadIdx.z) +offset[2];
     int cell_index = get_cell_index(cell_x, cell_y, cell_z);
-	if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){
-		printf("cell_index = %i for offset = %i,%i,%i\n", cell_index, offset[0], offset[1], offset[2]);
-	}
+	//if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){
+	//	printf("cell_index = %i for offset = %i,%i,%i\n", cell_index, offset[0], offset[1], offset[2]);
+	//}
 	int index;
 	if (cell_x < cellsPerSide && cell_y < cellsPerSide && cell_z < cellsPerSide){
 		int atom_counts = n[cell_index];
 		if (atom_counts == 0){
 			return;
 		}
-		if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("Atom counts = %i\n", atom_counts); }
+		//if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("Atom counts = %i\n", atom_counts); }
 		curandState_t localRandomState;
 		// define x and y here
 		int id = cell_x + cell_y * blockDim.x * gridDim.x + cell_z * blockDim.x * gridDim.x * blockDim.y * gridDim.y;
@@ -285,7 +285,7 @@ __global__ void subsweep_kernel(float * disk, short int *n, int * offset){
 			if (accept_move(proposed_move, cell_x, cell_y, cell_z, disk, D_sh, i, &localRandomState, atom_counts, n, index)){
 				//if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0){ printf("In 0 done! \n"); }
 				cpy_proposed_to_D_sh(D_sh, proposed_move, i, index);
-				if (threadIdx.x == 1 && threadIdx.y == 1 && threadIdx.z == 1){ printf("HAHAHA for index %i\n", cell_index); }
+				//if (threadIdx.x == 1 && threadIdx.y == 1 && threadIdx.z == 1){ printf("HAHAHA for index %i\n", cell_index); }
 			}
 			
 			i += 1;

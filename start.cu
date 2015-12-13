@@ -12,15 +12,16 @@
 
 
 #define N_ATOMS 64
-#define L 10
+#define L 10.0f
 #define beta 0.3
 #define cellsPerSide 4
-#define w 2.5
+#define w 2.5f
 #define nmax 10
 #define BLOCK_SIZE 1024
 #define n_M 10
-#define sigma 0.5
+#define sigma 0.5f
 #define dimCB 8
+#define MCpasses 1000
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
@@ -175,7 +176,6 @@ int main(){
 	// declare variables
 	float* d_r;
 	float * d_disk;
-	float * disk_dbl;
 	short int * d_n;
 	float * disk;
 	short int * n;
@@ -185,7 +185,7 @@ int main(){
 	int nsize = sizeof(short int) * CPS3;
 	int disksize = sizeof(float) * 3 * nmax * CPS3;
     int cboard_index[8]= {0,1,2,3,4,5,6,7};
-    int i;
+    int i, MC_step;
 	int f;
 	float d;
     int * off;
@@ -200,9 +200,8 @@ int main(){
 	cudaMalloc((void **)&d_r, rsize);
 	cudaMalloc((void **)&d_disk, disksize);
 	cudaMalloc((void **)&d_n, nsize);
-	cudaMalloc((void **)&disk_dbl, disksize);
 	cudaMalloc((void **)&d_off, sizeof(int) * 3);
-
+	
 	// initialize positions
 	int N_cube = int(cbrt(float(N_ATOMS)));
 	int gd = int(ceil(double(N_ATOMS) / N_cube));
@@ -228,24 +227,35 @@ int main(){
 	if (state != cudaSuccess){
 		printf("Assign kernel failed : %s", cudaGetErrorString(state));
 	}
-	dim3 blockSize1(cellsPerSide/2, cellsPerSide/2, cellsPerSide/2);
-    FY_Shuffle(cboard_index, dimCB);
-    for(i = 0; i < dimCB; i++){
-		printf("Running checkerboard %i\n", cboard_index[i]);
-        itoa(off, cboard_index[i]);
-		cudaMemcpy(d_off, off, sizeof(int) * 3, cudaMemcpyHostToDevice);
-        // sub-sweep kernel
-		//puts(r);
-        subsweep_kernel<<<1, blockSize1>>>(d_disk,d_n,d_off);
-        state = cudaDeviceSynchronize();
-        if (state != cudaSuccess){
-                printf("Subsweep failed : %s\n", cudaGetErrorString(state));
-        }
-        f = rand()%3 - 1;
-        d = float (rand())/RAND_MAX * w - w/2.0f;
-        // cell redraw boundaries kernel
-        //shiftCells<<<1, blockSize1>>>(d_disk, d_n, f, d, disk_dbl);
-    }
+	//cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
+	//cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
+	//host_print_disk(disk, n);
+	dim3 blockSize_SS(cellsPerSide/2, cellsPerSide/2, cellsPerSide/2);
+	dim3 blockSize_SC(cellsPerSide, cellsPerSide, cellsPerSide);
+	for (MC_step = 0; MC_step < MCpasses; MC_step++){
+		FY_Shuffle(cboard_index, dimCB);
+		for (i = 0; i < dimCB; i++){
+			//printf("Running checkerboard %i\n", cboard_index[i]);
+			itoa(off, cboard_index[i]);
+			cudaMemcpy(d_off, off, sizeof(int) * 3, cudaMemcpyHostToDevice);
+			// sub-sweep kernel
+			//puts(r);
+			subsweep_kernel << <1, blockSize_SS >> >(d_disk, d_n, d_off);
+			state = cudaDeviceSynchronize();
+			if (state != cudaSuccess){
+				printf("Subsweep failed : %s\n", cudaGetErrorString(state));
+			}
+		}
+		f = rand() % 3 - 1;
+		d = float(rand()) / RAND_MAX * w - w / 2.0f;
+		//f = 0 ; d = w / 4;
+		// cell redraw boundaries kernel
+		shiftCells << <1, blockSize_SC >> >(d_disk, d_n, f, d);
+		state = cudaDeviceSynchronize();
+		if (state != cudaSuccess){
+			printf("Shiftcells failed : %s\n", cudaGetErrorString(state));
+		}
+	}
 	cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
 	cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
 	host_print_disk(disk,n);
@@ -255,7 +265,6 @@ int main(){
 	cudaFree(d_r);
 	cudaFree(d_disk);
 	cudaFree(d_n);
-	cudaFree(disk_dbl);
 // Have fun! Grab a drink! 
 // changed a line
 }
