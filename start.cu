@@ -16,7 +16,7 @@
 #define beta 0.3
 #define cellsPerSide 4
 #define w 2.5
-#define nmax 30
+#define nmax 10
 #define BLOCK_SIZE 1024
 #define n_M 10
 #define sigma 0.5
@@ -153,6 +153,14 @@ void itoa(int * r, int n){
     r[0] = (n/4) % 2;
 }
 
+void host_print_disk(float * disk, short int * n){
+	for (int i = 0; i < CPS3; i++){
+		for (int j = 0; j < n[i]; j++){
+			printf("Position of atom %i in cell %i: %f\t%f\t%f\n", j, i, disk[nmax * 3 * i + j],
+				disk[nmax * 3 * i + j + nmax], disk[nmax * 3 * i + j + 2 * nmax]);
+		}
+	}
+}
 
 
 int main(){
@@ -169,6 +177,8 @@ int main(){
 	float * d_disk;
 	float * disk_dbl;
 	short int * d_n;
+	float * disk;
+	short int * n;
 	cudaError_t state;
 
 	int rsize = 3 * N_ATOMS * sizeof(float);
@@ -181,7 +191,10 @@ int main(){
     int * off;
 	int * d_off;
 
+	
     off = (int *) malloc(sizeof(int) * 3);
+	disk = (float *)malloc(disksize);
+	n = (short int *)malloc(nsize);
 
 	// allocate space on GPU
 	cudaMalloc((void **)&d_r, rsize);
@@ -215,16 +228,14 @@ int main(){
 	if (state != cudaSuccess){
 		printf("Assign kernel failed : %s", cudaGetErrorString(state));
 	}
-	dim3 blockSize1(cellsPerSide, cellsPerSide, cellsPerSide);
+	dim3 blockSize1(cellsPerSide/2, cellsPerSide/2, cellsPerSide/2);
     FY_Shuffle(cboard_index, dimCB);
     for(i = 0; i < dimCB; i++){
+		printf("Running checkerboard %i\n", cboard_index[i]);
         itoa(off, cboard_index[i]);
 		cudaMemcpy(d_off, off, sizeof(int) * 3, cudaMemcpyHostToDevice);
         // sub-sweep kernel
 		//puts(r);
-
-
-
         subsweep_kernel<<<1, blockSize1>>>(d_disk,d_n,d_off);
         state = cudaDeviceSynchronize();
         if (state != cudaSuccess){
@@ -233,8 +244,11 @@ int main(){
         f = rand()%3 - 1;
         d = float (rand())/RAND_MAX * w - w/2.0f;
         // cell redraw boundaries kernel
-        shiftCells<<<1, blockSize1>>>(d_disk, d_n, f, d, disk_dbl);
+        //shiftCells<<<1, blockSize1>>>(d_disk, d_n, f, d, disk_dbl);
     }
+	cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
+	cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
+	host_print_disk(disk,n);
 
     free(off);
 	cudaFree(d_off);
