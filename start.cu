@@ -145,6 +145,8 @@ __global__ void assign(float*r, float* disk, short int*n){
 	}
 }
 
+
+
 // Sub-sweep kernel
 
 // cell redraw boundaries kernel
