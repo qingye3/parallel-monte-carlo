@@ -21,7 +21,7 @@
 #define n_M 10
 #define sigma 0.5f
 #define dimCB 8
-#define MCpasses 1000
+#define MCpasses 5
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
@@ -199,9 +199,7 @@ __device__ bool out_of_bound(float * proposed_move, int cell_x, int cell_y, int 
 	return false;
 }
 
-
-__global__ void subSweep(float*disk, short int* nl, short int* n){
-	//__shared__ int currWriteIndex;
+__global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int offy, int offz){
 	__shared__ short int presum[27];
 	__shared__ float ldisk[27*nmax*3]; // format : all x of all cells followed by y then z and then garbage
 	__shared__ short int nlist_s[27];
@@ -212,15 +210,21 @@ __global__ void subSweep(float*disk, short int* nl, short int* n){
 	__shared__ float new_pos[3];
 	__shared__ bool rejected;
 	float old_pos[3], r_old, r_new, del_old, del_new, power6;
-	int tx, ty , tz, tindex, write_index, diskRead_index, dim;
-	short int cellx, celly, cellz;
+	int tx, ty , tz, tindex, write_index, diskRead_index, dim, i;
+	short int cellx, celly, cellz, cellId;
+	int accept_counter = 0;
 	bool accepted;
 	tx = threadIdx.x;
 	ty = threadIdx.y;
 	tz = threadIdx.z;
+
+	cellx = 2 * blockIdx.x + offx;
+	celly = 2 * blockIdx.y + offy;
+	cellz = 2 * blockIdx.z + offz;
+	cellId = get_cellindex(cellx, celly, cellz);
 	tindex = tx + ty*blockDim.x + tz*blockDim.x*blockDim.x;
 	if (tindex < 27){
-		nlist_s[tindex] = nl[tindex];
+		nlist_s[tindex] = nl[cellId*27 + tindex];
 		localn_s[tindex] = n[nlist_s[tindex]];
 	}
 	e_old[tindex] = 0.0f;
@@ -231,32 +235,47 @@ __global__ void subSweep(float*disk, short int* nl, short int* n){
 	}
 	__syncthreads();
 
-	cellx = 2*blockIdx.x;
-	celly = 2*blockIdx.y;
-	cellz = 2*blockIdx.z;
+
 	
-	if (tx == 0 && ty == 0 && tz == 0){
+	if (tindex == 0) {
 		calc_presum(localn_s, presum, 27);
 		totalAtoms = presum[26] + localn_s[26];
+		/*if (cellx + celly + cellz == 0) {
+			printf("\nPresum = ");
+			for (i = 0; i < 27; i++){
+				printf("%i\t", presum[i]);
+			}
+		}*/
 	}
 	__syncthreads();
 
 	if (tindex < 27){
 		for (int i = 0; i < localn_s[tindex]; i++){
 			for (int dim = 0; dim < 3; dim++){
-				write_index = presum[tindex] * 3 + i + dim*(totalAtoms);
+				write_index = presum[tindex] + i + dim*(totalAtoms);
 				diskRead_index = nlist_s[tindex] * nmax * 3 + i + dim*nmax;
 				ldisk[write_index] = disk[diskRead_index];
 			}
 		}
 	}
 	__syncthreads();
+	if (tindex == 0 && cellx + celly + cellz == 9) {
+		printf("\n\nOriginal ldisk before shuffle:\n(number of atoms in current block = %i\n \
+			number of atoms in current cell = %i\n", totalAtoms, localn_s[0]);
+		print_ldisk(ldisk, totalAtoms * 3, totalAtoms);
+	}
 	curandState_t localRandomState;
 	int id = tindex*blockIdx.x + blockIdx.y + blockIdx.z;
 	curand_init(tindex, id, 0, &localRandomState);
 	
 	if (tindex == 0){ random_shuffle(ldisk, localn_s[0], totalAtoms, &localRandomState); }
-	if (tindex == 0 && cellx + celly + cellz == 0){ print_ldisk(ldisk, totalAtoms * 3, totalAtoms); }
+	__syncthreads();
+	if (tindex == 0 && cellx + celly + cellz == 9) {
+		printf("\n\nOriginal ldisk after shuffle:\n(number of atoms in current block = %i\n \
+			   			   			number of atoms in current cell = %i\n", totalAtoms, localn_s[0]);
+		print_ldisk(ldisk, totalAtoms * 3, totalAtoms);
+	}
+	//if (tindex == 0 && cellx + celly + cellz == 9){ print_ldisk(ldisk, totalAtoms * 3, totalAtoms); }
 	int atomInCell_id = 0;
 	for (int move = 0; move < n_M; move++){
 		old_pos[0] = ldisk[atomInCell_id];
@@ -265,6 +284,7 @@ __global__ void subSweep(float*disk, short int* nl, short int* n){
 		if (tindex == 0){
 			make_move(new_pos, old_pos, &localRandomState);
 			rejected = out_of_bound(new_pos, cellx, celly, cellz);
+			//if (rejected && (cellx + celly + cellz == 0)){ printf("move %i rejected : out of bounds! %i \n\n",move, rejected); }
 		}
 		__syncthreads();
 		if (!rejected){
@@ -328,21 +348,29 @@ __global__ void subSweep(float*disk, short int* nl, short int* n){
 					e_old[tindex] += e_old[tindex + 1];
 					e_new[tindex] += e_new[tindex + 1];
 				}
-			}
+			}__syncthreads();
 				if (tindex == 0){
 					if (e_new[0] - e_old[0] < 0){
 						accepted = true;
+						//if (cellx + celly + cellz == 0){ printf("\nmove %i accepted, new energy lower!\n", move); }
 					}
 					else if (__expf(-beta*(e_new[0] - e_old[0])) < curand_uniform(&localRandomState)){
 						accepted = true;
+						//if (cellx + celly + cellz == 0){
+						//	printf("\nmove %i accepted, even though new energy higher!\n", move);
+						//}
 					}
 					else{
 						accepted = false;
+						//if (cellx + celly + cellz == 0){
+						//	printf("\nmove %i REJECTED, new energy higher, acceptance criterion NOT met!\n", move);
+						//}
 					}
 					if (accepted){
 						ldisk[atomInCell_id] = new_pos[0];
 						ldisk[atomInCell_id + totalAtoms] = new_pos[1];
 						ldisk[atomInCell_id + 2 * totalAtoms] = new_pos[2];
+						accept_counter++;
 					}
 				}
 				__syncthreads();
@@ -350,7 +378,22 @@ __global__ void subSweep(float*disk, short int* nl, short int* n){
 		atomInCell_id++;
 		if (atomInCell_id >= localn_s[0]){ atomInCell_id = 0; }
 	}
-	if (tindex == 0 && cellx + celly + cellz == 0){ printf("\n"); print_ldisk(ldisk, totalAtoms * 3, totalAtoms); }
+	//__syncthreads();
+	//if (tindex == 0 && cellx + celly + cellz == 0){ 
+	//	printf("\n\n"); 
+	//	printf("Accepted %i moves\nNew ldisk is:\n", accept_counter); 
+	//	print_ldisk(ldisk, totalAtoms * 3, totalAtoms); 
+	//}
+	//__syncthreads();
+	if (tindex == 0 ){
+		for (int i = 0; i < localn_s[tindex]; i++){
+			for (int dim = 0; dim < 3; dim++){
+				write_index = i + dim*(totalAtoms);
+				diskRead_index = nlist_s[tindex] * nmax * 3 + i + dim*nmax;
+				disk[diskRead_index] = ldisk[write_index];
+			}
+		}
+	}
 }
 
 void print_nl(short int* nl, int len, int len_line_break){
@@ -362,6 +405,32 @@ void print_nl(short int* nl, int len, int len_line_break){
 	}
 }
 
+void FY_Shuffle(int * a, int n){
+	int i, randindex;
+	int temp;
+	srand(time(NULL));
+	for (i = n - 1; i > 0; i--){
+		randindex = rand() % (i + 1);
+		temp = a[n - i];
+		a[n - i] = a[randindex];
+		a[randindex] = temp;
+	}
+}
+
+void itoa(int * r, int n){
+	r[2] = n % 2;
+	r[1] = (n / 2) % 2;
+	r[0] = (n / 4) % 2;
+}
+
+void host_print_disk(float * disk, short int * n){
+	for (int i = 0; i < CPS3; i++){
+		for (int j = 0; j < n[i]; j++){
+			printf("Position of atom %i in cell %i: %f\t%f\t%f\n", j, i, disk[nmax * 3 * i + j],
+				disk[nmax * 3 * i + j + nmax], disk[nmax * 3 * i + j + 2 * nmax]);
+		}
+	}
+}
 
 int main(){
 	short int * d_nl;
@@ -369,17 +438,23 @@ int main(){
 	float * d_disk;
 	short int * d_n;
 	float * d_r;
-
+	/*float * disk;
+	short int *n;*/
+	int offset[3];
 	cudaError_t state;
 	
 	int Ncbrt = int(ceil(cbrt((float)N_ATOMS)));
-	
+	int cboard_index[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+	int i, MC_step;
+
 	int nlsize = sizeof(short int) * 27 * CPS3;
 	int nsize = sizeof(short int) * CPS3;
 	int disksize = sizeof(float) * 3 * nmax * CPS3;
 	int rsize = sizeof(float) * 3 * N_ATOMS;
 
 	nl = (short int *)malloc(nlsize);
+	//disk = (float *)malloc(disksize);
+	//n = (short int *)malloc(nsize);
 
 	cudaMalloc((void **)&d_nl, nlsize);
 	cudaMalloc((void **)&d_disk, disksize);
@@ -389,6 +464,7 @@ int main(){
 	dim3 bs_make_nl(cellsPerSide,cellsPerSide,cellsPerSide);
 	dim3 bs_init_r(Ncbrt, Ncbrt, Ncbrt);
 	dim3 bs_subSweep(10, 10, 10);
+	dim3 gs_subSweep(cellsPerSide / 2, cellsPerSide / 2, cellsPerSide / 2);
 	
 	make_nl << <1, bs_make_nl >> >(d_nl);
 	init_r << <1, bs_init_r >> >(d_r, Ncbrt);
@@ -402,14 +478,21 @@ int main(){
 	if (state != cudaSuccess){
 		printf("Assign kernel failed : %s", cudaGetErrorString(state));
 	}
-
-	subSweep << <1, bs_subSweep >> >(d_disk, d_nl, d_n);
-	state = cudaDeviceSynchronize();
-	if (state != cudaSuccess){
-		printf("Controversial kernel failed! : %s", cudaGetErrorString(state));
+	//cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
+	//cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
+	//host_print_disk(disk, n);
+	for (MC_step = 0; MC_step < MCpasses; MC_step++){
+		FY_Shuffle(cboard_index, dimCB);
+		for (i = 0; i < dimCB; i++){
+			itoa(offset, i);
+			subSweep << <gs_subSweep, bs_subSweep >> >(d_disk, d_nl, d_n, offset[2], offset[1], offset[0]);
+			state = cudaDeviceSynchronize();
+			if (state != cudaSuccess){
+				printf("Controversial kernel failed! : %s", cudaGetErrorString(state));
+			}
+		}
 	}
-
-	//cudaMemcpy(disk, d_nl, nlsize, cudaMemcpyDeviceToHost);
+	//cudaMemcpy(nl, d_nl, nlsize, cudaMemcpyDeviceToHost);
 
 	//print_nl(nl, 27 * CPS3, 27);
 
