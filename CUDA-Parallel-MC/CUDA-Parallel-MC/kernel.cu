@@ -10,16 +10,16 @@
 #include <time.h>
 #include <string.h>
 
-#define N_ATOMS 64
+#define N_ATOMS 15
 #define L 10.0f
-#define beta 1.0
+#define beta 0.3
 #define cellsPerSide 4
 #define w 2.5f
 #define rc 2.5f
 #define nmax 20
 #define BLOCK_SIZE 1024
-#define n_M 20
-#define sigma 0.5f
+#define n_M 5
+#define sigma 0.25f
 #define dimCB 8
 #define MCpasses 100
 
@@ -222,12 +222,12 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 	__shared__ float e_new[1024];
 	float oldE;
 	float newE;
-	__shared__ int totalAtoms;
+	__shared__ short int totalAtoms;
 	__shared__ float new_pos[3];
 	__shared__ bool rejected;
 	__shared__ int checker_id;
 	// new variables start
-	checker_id = offx + offy * 2 + offz * 4;
+	
 	int block_id = blockIdx.x + blockIdx.y*gridDim.x + blockIdx.z*gridDim.x*gridDim.x;
 	// new variables end
 	float old_pos[3], r_old, r_new, del_old, del_new, power6;
@@ -254,11 +254,16 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 	// Initialize d_Eblocks
 	if (tindex == 0) { d_Eblocks[block_id] = 0.0f; }
 
+	// init checker id
+	if (tindex == 0) {
+		checker_id = offx + offy * 2 + offz * 4;
+	}
+
 	// generate presum and total atoms here
 	if (tindex == 0) {
 		calc_presum(localn_s, presum, 27);
 		totalAtoms = presum[26] + localn_s[26];
-		//if (totalAtoms > 9) { printf("\nTotal number of atoms in system for cell %i & CB# %i is: %i\n", block_id, checker_id, totalAtoms); }
+		if (totalAtoms > N_ATOMS) { printf("\nTotal number of atoms calc wrong!"); }
 		/*if (cellx + celly + cellz == 0) {
 		printf("\nPresum = ");
 		for (i = 0; i < 27; i++){
@@ -270,8 +275,8 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 
 	//generate local copy of disk
 	if (tindex < 27){
-		for (int i = 0; i < localn_s[tindex]; i++){
-			for (int dim = 0; dim < 3; dim++){
+		for (i = 0; i < localn_s[tindex]; i++){
+			for (dim = 0; dim < 3; dim++){
 				write_index = presum[tindex] + i + dim*totalAtoms;
 				diskRead_index = nlist_s[tindex] * nmax * 3 + i + dim*nmax;
 				ldisk[write_index] = disk[diskRead_index];
@@ -310,8 +315,6 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 		old_pos[1] = ldisk[atomInCell_id + totalAtoms];
 		old_pos[2] = ldisk[atomInCell_id + 2 * totalAtoms];
 		if (tindex == 0){
-			oldE = 0.0f;
-			newE = 0.0f;
 			make_move(new_pos, old_pos, &localRandomState);
 			rejected = out_of_bound(new_pos, cellx, celly, cellz);
 			//if (rejected && (cellx + celly + cellz == 0)){ printf("move %i rejected : out of bounds! %i \n\n",move, rejected); }
@@ -338,7 +341,9 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 				r_old = sqrtf(r_old);
 				r_new = sqrtf(r_new);
 				if (r_new > 0.0f && r_new <= rc){
-					power6 = __powf(r_new, -6.0);
+					//power6 = __powf(r_new, -6.0);
+					power6 = 1.0f/r_new*1.0f/r_new;
+					power6 = power6*power6*power6;
 					e_new[tindex] = 4.0f * (power6 * power6 - power6);
 					/*	if (r_old < 1 && r_old!=0) {
 					printf("r old <1 : %f for atom pair: %i and %i\t\n", r_old,tindex,atomInCell_id);
@@ -354,14 +359,16 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 					}*/
 				}
 				if (r_old > 0.0f && r_old <= rc){
-					power6 = __powf(r_old, -6.0);
+					//power6 = __powf(r_old, -6.0);
+					power6 = 1.0f/r_old*1.0f/r_old;
+					power6 = power6*power6*power6;
 					e_old[tindex] = 4.0f * (power6 * power6 - power6);
 					/*if (e_old[tindex] < -1) {
 					printf("Energy too high (negative): %f\n", e_old[tindex]);
 					}*/
-					if (e_old[tindex] > 1000) {
-						printf("e > 10: atom %i and %i \tr_old = %f; e_old = %f\n", atomInCell_id, tindex, r_old, e_old[tindex]);
-					}
+					//if (e_old[tindex] > 1000) {
+					//	printf("e > 10: atom %i and %i \tr_old = %f; e_old = %f\n", atomInCell_id, tindex, r_old, e_old[tindex]);
+					//}
 				}
 				//if (e_new[tindex] - e_old){
 				//	for (int z = 0; z < totalAtoms; z++)
@@ -372,42 +379,42 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 			__syncthreads();
 			// reduction
 			//Loading input floats to shared memory
-			//Take care of the boundary conditions 
-			/*if (tindex < 512){
-			e_old[tindex] += e_old[tindex + 512];
-			e_new[tindex] += e_new[tindex + 512];
-			} __syncthreads();
-			if (tindex < 256){
-			e_old[tindex] += e_old[tindex + 256];
-			e_new[tindex] += e_new[tindex + 256];
-			} __syncthreads();
-			if (tindex < 128){
-			e_old[tindex] += e_old[tindex + 128];
-			e_new[tindex] += e_new[tindex + 128];
-			} __syncthreads();
-			if (tindex < 64){
-			e_old[tindex] += e_old[tindex + 64];
-			e_new[tindex] += e_new[tindex + 64];
-			} __syncthreads();
-			if (tindex < 32){
-			e_old[tindex] += e_old[tindex + 32];
-			e_new[tindex] += e_new[tindex + 32];
-			e_old[tindex] += e_old[tindex + 16];
-			e_new[tindex] += e_new[tindex + 16];
-			e_old[tindex] += e_old[tindex + 8];
-			e_new[tindex] += e_new[tindex + 8];
-			e_old[tindex] += e_old[tindex + 4];
-			e_new[tindex] += e_new[tindex + 4];
-			e_old[tindex] += e_old[tindex + 2];
-			e_new[tindex] += e_new[tindex + 2];
-			e_old[tindex] += e_old[tindex + 1];
-			e_new[tindex] += e_new[tindex + 1];
-			}__syncthreads();
-			if (tindex == 0) {
-			oldE = e_old[0];
-			newE = e_new[0];
-			}*/
-			/*__syncthreads();*/
+			////Take care of the boundary conditions 
+			//if (tindex < 512){
+			//e_old[tindex] += e_old[tindex + 512];
+			//e_new[tindex] += e_new[tindex + 512];
+			//} __syncthreads();
+			//if (tindex < 256){
+			//e_old[tindex] += e_old[tindex + 256];
+			//e_new[tindex] += e_new[tindex + 256];
+			//} __syncthreads();
+			//if (tindex < 128){
+			//e_old[tindex] += e_old[tindex + 128];
+			//e_new[tindex] += e_new[tindex + 128];
+			//} __syncthreads();
+			//if (tindex < 64){
+			//e_old[tindex] += e_old[tindex + 64];
+			//e_new[tindex] += e_new[tindex + 64];
+			//} __syncthreads();
+			//if (tindex < 32){
+			//e_old[tindex] += e_old[tindex + 32];
+			//e_new[tindex] += e_new[tindex + 32];
+			//e_old[tindex] += e_old[tindex + 16];
+			//e_new[tindex] += e_new[tindex + 16];
+			//e_old[tindex] += e_old[tindex + 8];
+			//e_new[tindex] += e_new[tindex + 8];
+			//e_old[tindex] += e_old[tindex + 4];
+			//e_new[tindex] += e_new[tindex + 4];
+			//e_old[tindex] += e_old[tindex + 2];
+			//e_new[tindex] += e_new[tindex + 2];
+			//e_old[tindex] += e_old[tindex + 1];
+			//e_new[tindex] += e_new[tindex + 1];
+			//}__syncthreads();
+			//if (tindex == 0) {
+			//oldE = e_old[0];
+			//newE = e_new[0];
+			//}
+			//__syncthreads();
 
 
 			// Alternate reduction - sequential:
@@ -436,12 +443,12 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 
 			float temp;
 			if (tindex == 0){
-				if (newE - oldE < 0){
+				if (newE - oldE < -5.0e-6){
 					accepted = true;
 					//if (cellx + celly + cellz == 0){ printf("\nmove %i accepted, new energy lower!\n", move); }
 				}
 				else if (__expf(-beta*(newE - oldE)) > curand_uniform(&localRandomState)){
-					accepted = false;
+					accepted = true;
 					//if (cellx + celly + cellz == 0){
 					//	printf("\nmove %i accepted, even though new energy higher! Old E = %f, New E = %f, prob = %f\n", move, oldE,newE, temp);
 					//}
@@ -458,40 +465,47 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 					ldisk[atomInCell_id + 2 * totalAtoms] = new_pos[2];
 					accept_counter++;
 					//if (cellx + celly + cellz == 0){
-					//	printf("\nmove %i accepted, old E = %f, new E = %f\n", move, e_old[5], e_new[5]);
+					//	printf("\nmove %i accepted, old E = %1.10f, new E = %1.10f\n", move, e_old[0], e_new[0]);
 					//}
 					temp = newE - oldE;
-					if (temp > 0){
-						if (block_id == 0) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-						if (block_id == 1) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-						if (block_id == 2) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-						if (block_id == 3) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-						if (block_id == 4) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-						if (block_id == 5) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-						if (block_id == 6) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-						if (block_id == 7) {
-							printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
-						}
-					}
+					//if (temp > 0){
+					//	if (block_id == 0) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//	if (block_id == 1) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//	if (block_id == 2) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//	if (block_id == 3) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//	if (block_id == 4) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//	if (block_id == 5) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//	if (block_id == 6) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//	if (block_id == 7) {
+					//		printf("Energy change = %f\t for block %i and CB %i\nOldE = %f; NewE = %f\n\n", temp, block_id, checker_id, oldE, newE);
+					//	}
+					//}
 					d_Eblocks[block_id] += temp;
 					//if (temp < -25.0f){ printf("Energy change too high:%f particle: %i, in cell: %i\n new_pos: %f\t%f\t%f\t old_pos:%f\t%f\t%f\t\n", 
 					//	temp, atomInCell_id, cellId, new_pos[0], new_pos[1], new_pos[2], old_pos[0], old_pos[1], old_pos[2] );
 					//}
+					//printf("Accept counter for block %i is %i\n", block_id, accept_counter);
 				}
+				//else{
+				//	ldisk[atomInCell_id] = old_pos[0];
+				//	ldisk[atomInCell_id + totalAtoms] = old_pos[1];
+				//	ldisk[atomInCell_id + 2 * totalAtoms] = old_pos[2];
+				//	d_Eblocks[block_id] += 0.0f;
+				//}
 			}
 			__syncthreads();
 		} // end of if(!rejected)
@@ -511,7 +525,7 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 		for (int i = 0; i < localn_s[tindex]; i++){
 			for (int dim = 0; dim < 3; dim++){
 				write_index = i + dim*(totalAtoms);
-				diskRead_index = nlist_s[tindex] * nmax * 3 + i + dim*nmax;
+				diskRead_index = cellId * nmax * 3 + i + dim*nmax;
 				disk[diskRead_index] = ldisk[write_index];
 			}
 		}
@@ -646,6 +660,13 @@ void create_dump(char *filename, float *data, int steps, int nparticles){
 	printf("\n %sfile created \n", filename);
 }
 
+void printFY_shuffle(int*a, int n){
+	printf("Printing shuffling results:\t");
+	for (int i = 0; i < n; i++){
+		printf("%i\t", a[i]);
+	}
+}
+
 int main(){
 	short int * d_nl;
 	short int * nl;
@@ -686,7 +707,7 @@ int main(){
 	energyblocks = (float *)malloc(sizeof(float)*CPS3 / 8);
 	energytrace = (float *)malloc(sizeof(float)*(MCpasses + 1));
 	disk = (float *)malloc(disksize);
-	Rtrace = (float *)malloc(rsize*MCpasses);
+	Rtrace = (float *)malloc(rsize*(MCpasses+1));
 
 	cudaMalloc((void **)&d_nl, nlsize);
 	cudaMalloc((void **)&d_disk, disksize);
@@ -708,6 +729,9 @@ int main(){
 	}
 
 	cudaMemcpy(r, d_r, rsize, cudaMemcpyDeviceToHost);
+	for (int i = 0; i < 3 * N_ATOMS; i++){
+		Rtrace[i] = r[i];
+	}
 	energytrace[0] = calc_energy(r);
 	printf("energytrace[0] = %f\n", energytrace[0]);
 	assign << <int(ceil(float(CPS3) / BLOCK_SIZE)), BLOCK_SIZE >> >(d_r, d_disk, d_n);
@@ -722,8 +746,9 @@ int main(){
 	for (MC_step = 0; MC_step < MCpasses; MC_step++){
 		energytrace[MC_step + 1] = 0.0f;
 		FY_Shuffle(cboard_index, dimCB);
+		//printFY_shuffle(cboard_index, dimCB);
 		for (i = 0; i < dimCB; i++){
-			itoa(offset, i);
+			itoa(offset, cboard_index[i]);
 			subSweep << <gs_subSweep, bs_subSweep >> >(d_disk, d_nl, d_n, offset[2], offset[1], offset[0], d_energyblocks);
 			state = cudaDeviceSynchronize();
 			if (state != cudaSuccess){
@@ -749,11 +774,11 @@ int main(){
 		f = RNG[MC_step] % 3;
 		d = (float)RNG[MC_step + MCpasses] / RAND_MAX * w - w / 2.0f;
 		printf("Shifting in direction %i by %fw\n", f, d / w);
-		/*shiftCells << <1, bs_shiftCells >> >(d_disk, d_n, f, d);*/
-		shiftatoms << <int(ceil((float)N_ATOMS / BLOCK_SIZE)), BLOCK_SIZE >> >(d_disk, d_n, d_r, d, f);
-		cudaDeviceSynchronize();
-		assign << <int(ceil(float(CPS3) / BLOCK_SIZE)), BLOCK_SIZE >> >(d_r, d_disk, d_n);
-		state = cudaDeviceSynchronize();
+		shiftCells << <1, bs_shiftCells >> >(d_disk, d_n, f, d);
+		//shiftatoms << <int(ceil((float)N_ATOMS / BLOCK_SIZE)), BLOCK_SIZE >> >(d_disk, d_n, d_r, d, f);
+		//cudaDeviceSynchronize();
+		//assign << <int(ceil(float(CPS3) / BLOCK_SIZE)), BLOCK_SIZE >> >(d_r, d_disk, d_n);
+		//state = cudaDeviceSynchronize();
 
 		if (state != cudaSuccess){
 			printf("Shiftcells failed : %s\n", cudaGetErrorString(state));
@@ -769,7 +794,7 @@ int main(){
 		printf("\n");
 		*/
 
-		disk_to_r(Rtrace + MC_step * 3 * N_ATOMS, disk, n);
+		disk_to_r(Rtrace + (MC_step+1) * 3 * N_ATOMS, disk, n);
 	}
 	char s[20] = "dumpR";
 	create_dump(s, Rtrace, MCpasses, N_ATOMS);
