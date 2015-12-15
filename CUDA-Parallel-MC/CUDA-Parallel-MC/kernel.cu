@@ -10,7 +10,7 @@
 #include <time.h>
 #include <string.h>
 
-#define N_ATOMS 15
+#define N_ATOMS 125
 #define L 10.0f
 #define beta 0.3
 #define cellsPerSide 4
@@ -19,7 +19,7 @@
 #define nmax 20
 #define BLOCK_SIZE 1024
 #define n_M 5
-#define sigma 0.25f
+#define sigma 0.5f
 #define dimCB 8
 #define MCpasses 100
 

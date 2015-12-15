@@ -1,10 +1,10 @@
-﻿Build started 12-15-2015 14:08:50.
+﻿Build started 12-15-2015 15:22:31.
      1>Project "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\CUDA-Parallel-MC.vcxproj" on node 2 (Build target(s)).
      1>AddCudaCompileDeps:
          C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\cl.exe /E /nologo /showIncludes /TP /D__CUDACC__ /DWIN32 /D_DEBUG /D_CONSOLE /D_MBCS /I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" /I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\bin" /I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" /I. /FIcuda_runtime.h /c "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\kernel.cu" 
        CudaBuild:
          Compiling CUDA source file kernel.cu...
-         cmd.exe /C "C:\Users\Ghost\AppData\Local\Temp\tmp77699d7e5d504b97868ea0dfb13f2b1c.cmd"
+         cmd.exe /C "C:\Users\Ghost\AppData\Local\Temp\tmp0bfeb10ccf854842932899222e36cf06.cmd"
          "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\bin\nvcc.exe" -gencode=arch=compute_20,code=\"sm_20,compute_20\" --use-local-env --cl-version 2013 -ccbin "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin"  -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include"  -G   --keep-dir Debug -maxrregcount=0  --machine 32 --compile -cudart static  -g   -DWIN32 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Zi /RTC1 /MDd " -o Debug\kernel.cu.obj "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\kernel.cu"
          
          C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\bin\nvcc.exe" -gencode=arch=compute_20,code=\"sm_20,compute_20\" --use-local-env --cl-version 2013 -ccbin "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin"  -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include"  -G   --keep-dir Debug -maxrregcount=0  --machine 32 --compile -cudart static  -g   -DWIN32 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Zi /RTC1 /MDd " -o Debug\kernel.cu.obj "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\kernel.cu" 
@@ -32,4 +32,4 @@
 
 Build succeeded.
 
-Time Elapsed 00:00:07.76
+Time Elapsed 00:00:07.15

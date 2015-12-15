@@ -29,9 +29,9 @@ __device__ void init_array(float * D_sh, int len){
 __global__ void shiftCells(float *disk, short int *n, int f, float d) {
 
 	// Declarations/initializations
-	int s[3], cellId, cellId_nb, nCurr, nNew, nNb, cid[3];
+	int cellId, cellId_nb, nCurr, nNew, nNb, cid[3];
 	int i, j, dim;
-	float offset, D;
+	float offset, D, s[3];
 
 	__shared__ float shortDisk[CPS3*nmax];
 	float D_sh[nmax * 3]; // D_sh stores global coordinates of all atoms in current cell after shift
@@ -106,6 +106,7 @@ __global__ void shiftCells(float *disk, short int *n, int f, float d) {
 	for (dim = 0; dim<3; dim++) {
 		s[dim] = w*dir[dim];
 	}
+	//if (cellId == 0){ printf("f is %i, w is %f, dir array is : %f\t%f\t%f\n",f, w, s[0], s[1], s[2]); }
 
 	cellId_nb = cid[0] + cid[1] * cellsPerSide + cid[2] * cellsPerSide*cellsPerSide;
 	nNb = n[cellId_nb];
@@ -114,6 +115,8 @@ __global__ void shiftCells(float *disk, short int *n, int f, float d) {
 		D = shortDisk[cellId_nb*nmax + i] - d;
 
 		if (!(D>0 && D <= w)){
+			//printf("atoms from cell %i have come into cell %i which has offset %f\n", cellId_nb, cellId, offset);
+			//printf("Atom %i at %f in cell %i moved to %f in old cell, and %f in cell %i by adding s[dim] = %f\n", i,D+d,cellId_nb,D,D+s[f],cellId, s[f]);
 			for (dim = 0; dim<3; dim++) {
 				if (dim == f)
 					D_sh[dim*nmax + nNew] = D + offset + s[dim];
