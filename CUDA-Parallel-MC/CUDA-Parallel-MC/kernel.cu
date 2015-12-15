@@ -10,18 +10,18 @@
 #include <time.h>
 #include <string.h>
 
-
-#define N_ATOMS 64
+#define N_ATOMS 113
 #define L 10.0f
 #define beta 1.0
 #define cellsPerSide 4
 #define w 2.5f
-#define nmax 10
+#define rc 2.5f
+#define nmax 20
 #define BLOCK_SIZE 1024
 #define n_M 10
-#define sigma 0.1f
+#define sigma 0.01f
 #define dimCB 8
-#define MCpasses 50
+#define MCpasses 20
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
@@ -220,9 +220,16 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 	__shared__ short int localn_s[27];
 	__shared__ float e_old[1024];
 	__shared__ float e_new[1024];
+	__shared__ float oldE;
+	__shared__ float newE;
 	__shared__ int totalAtoms;
 	__shared__ float new_pos[3];
 	__shared__ bool rejected;
+	__shared__ int checker_id;
+	// new variables start
+	checker_id = offx + offy * 2 + offz * 4;
+	int block_id = blockIdx.x + blockIdx.y*gridDim.x + blockIdx.z*gridDim.x*gridDim.x;
+	// new variables end
 	float old_pos[3], r_old, r_new, del_old, del_new, power6;
 	int tx, ty , tz, tindex, write_index, diskRead_index, dim, i;
 	short int cellx, celly, cellz, cellId;
@@ -243,10 +250,15 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 		localn_s[tindex] = n[nlist_s[tindex]];
 	}
 	__syncthreads();
+
+	// Initialize d_Eblocks
+	d_Eblocks[block_id] = 0.0f;
+
 	// generate presum and total atoms here
 	if (tindex == 0) {
 		calc_presum(localn_s, presum, 27);
 		totalAtoms = presum[26] + localn_s[26];
+		//if (totalAtoms > 9) { printf("\nTotal number of atoms in system for cell %i & CB# %i is: %i\n", block_id, checker_id, totalAtoms); }
 		/*if (cellx + celly + cellz == 0) {
 			printf("\nPresum = ");
 			for (i = 0; i < 27; i++){
@@ -288,6 +300,8 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 	for (int move = 0; move < n_M; move++){
 		e_old[tindex] = 0.0f;
 		e_new[tindex] = 0.0f;
+		oldE = 0.0f;
+		newE = 0.0f;
 		if (tindex < 24){
 			e_old[1000 + tindex] = 0.0f;
 			e_new[1000 + tindex] = 0.0f;
@@ -322,25 +336,31 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 				}
 				r_old = sqrtf(r_old);
 				r_new = sqrtf(r_new);
-				if (r_new > 1.0e-5 && r_new <= w){
+				if (r_new > 1.0e-5 && r_new <= rc){
 					power6 = __powf(r_new, -6.0);
 					e_new[tindex] = 4.0f * (power6 * power6 - power6);
 					/*if (r_old < 1 && r_old!=0) {
 						printf("r old <1 : %f for atom pair: %i and %i\t\n", r_old,tindex,atomInCell_id);
-						}*/
-					/*if (e_new[tindex] < -1) {
+						}
+					if (e_new[tindex] < -1) {
 						printf("Energy too high: %f\n", e_new[tindex]);
 						}*/
+					/*if (e_new[tindex] < -1) {
+						printf("Energy too high (negative): %f\n", e_new[tindex]);
+					}
+					if (r_new < 1 || e_new[tindex] > 0) {
+						printf("r_old <1 or e > 0: \tr_old = %f; e_old = %f\n", r_new, e_new[tindex]);
+					}*/
 				}
-				if (r_old > 1.0e-5 && r_old <= w){
+				if (r_old > 1.0e-5 && r_old <= rc){
 					power6 = __powf(r_old, -6.0);
 					e_old[tindex] = 4.0f * (power6 * power6 - power6);
 					/*if (e_old[tindex] < -1) {
-						printf("Energy too high: %f\n", e_old[tindex]);
-						}
-						if (r_old < 1) {
-						printf("r old <1 : %f", r_old);
-						}*/
+						printf("Energy too high (negative): %f\n", e_old[tindex]);
+					}
+					if (r_old < 1 || e_old[tindex] > 0) {
+						printf("r_old <1 or e > 0: \tr_old = %f; e_old = %f\n", r_old,e_old[tindex]);
+					}*/
 				}
 				//if (e_new[tindex] - e_old){
 				//	for (int z = 0; z < totalAtoms; z++)
@@ -352,7 +372,7 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 			// reduction
 			//Loading input floats to shared memory
 			//Take care of the boundary conditions 
-			if (tindex < 512){
+			/*if (tindex < 512){
 				e_old[tindex] += e_old[tindex + 512];
 				e_new[tindex] += e_new[tindex + 512];
 			} __syncthreads();
@@ -382,16 +402,31 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 				e_old[tindex] += e_old[tindex + 1];
 				e_new[tindex] += e_new[tindex + 1];
 			}__syncthreads();
+			if (tindex == 0) {
+				oldE = e_old[0];
+				newE = e_new[0];
+			}*/
+			__syncthreads();
+
+
+			// Alternate reduction - sequential:
+			if (tindex == 0) { 
+				for (i = 0; i < totalAtoms; i++) {
+					oldE += e_old[i];
+					newE += e_new[i];
+				}
+			}
+			
 			float temp;
 			if (tindex == 0){
-				if (e_new[0] - e_old[0] < 0){
+				if (newE - oldE < 0){
 					accepted = true;
 					//if (cellx + celly + cellz == 0){ printf("\nmove %i accepted, new energy lower!\n", move); }
 				}
-				else if (__expf(-beta*(e_new[0] - e_old[0])) > (temp = curand_uniform(&localRandomState))){
+				else if (__expf(-beta*(newE - oldE)) > (temp = curand_uniform(&localRandomState))){
 					accepted = true;
 					//if (cellx + celly + cellz == 0){
-					//	printf("\nmove %i accepted, even though new energy higher! Old E = %f, New E = %f, prob = %f\n", move, e_old[0],e_new[0], temp);
+					//	printf("\nmove %i accepted, even though new energy higher! Old E = %f, New E = %f, prob = %f\n", move, oldE,newE, temp);
 					//}
 				}
 				else{
@@ -408,11 +443,37 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 					//if (cellx + celly + cellz == 0){
 					//	printf("\nmove %i accepted, old E = %f, new E = %f\n", move, e_old[5], e_new[5]);
 					//}
-					temp = e_new[0] - e_old[0];
-					d_Eblocks[blockIdx.x + blockIdx.y*gridDim.x + blockIdx.z*gridDim.x*gridDim.x] = temp;
-					if (temp < -25.0f){ printf("Energy change too high:%f particle: %i, in cell: %i\n new_pos: %f\t%f\t%f\t old_pos:%f\t%f\t%f\t\n", 
-						temp, atomInCell_id, cellId, new_pos[0], new_pos[1], new_pos[2], old_pos[0], old_pos[1], old_pos[2] );
-					}
+					temp = newE - oldE;
+					/*if (fabs(temp) > 1000){
+						if (block_id == 0) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id,checker_id);
+						}
+						if (block_id == 1) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id, checker_id);
+						}
+						if (block_id == 2) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id, checker_id);
+						}
+						if (block_id == 3) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id, checker_id);
+						}
+						if (block_id == 4) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id, checker_id);
+						}
+						if (block_id == 5) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id, checker_id);
+						}
+						if (block_id == 6) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id, checker_id);
+						}
+						if (block_id == 7) {
+							printf("Energy change = %f\t for block %i and CB %i\n", temp, block_id, checker_id);
+						}
+					}*/
+					d_Eblocks[blockIdx.x + blockIdx.y*gridDim.x + blockIdx.z*gridDim.x*gridDim.x] += temp;
+					//if (temp < -25.0f){ printf("Energy change too high:%f particle: %i, in cell: %i\n new_pos: %f\t%f\t%f\t old_pos:%f\t%f\t%f\t\n", 
+					//	temp, atomInCell_id, cellId, new_pos[0], new_pos[1], new_pos[2], old_pos[0], old_pos[1], old_pos[2] );
+					//}
 				}
 			}
 			__syncthreads();
@@ -460,7 +521,7 @@ float calc_energy(float * r){
 				dist += del*del;
 			}
 			dist = sqrt(dist);
-			if (dist <= w){
+			if (dist <= rc){
 				power6 = powf(dist, -6.0f);
 				energy += 4.0f* (power6*power6 - power6);
 			}
@@ -505,6 +566,46 @@ void host_print_disk(float * disk, short int * n){
 	}
 }
 
+void disk_to_r(float* r, float* disk, short int* n){
+	int counter = 0;
+	for (int i = 0; i < CPS3; i++){
+		for (int j = 0; j < n[i]; j++){
+			for (int dim = 0; dim < 3; dim++){
+				r[N_ATOMS*dim + counter] = disk[i*nmax * 3 + j + dim*nmax];
+			}
+			counter++;
+		}
+	}
+}
+
+void create_dump(char *filename, float *data, int steps, int nparticles){
+	printf("\n Creating %s.txt file", filename);
+	FILE *fp;
+	int i, j;
+	filename = strcat(filename, ".txt");
+	fp = fopen(filename, "w+");
+	int stride;
+	//fprintf(fp,"Student Id, Physics, Chemistry, Maths");
+	/*ITEM: TIMESTEP
+	0
+	ITEM: NUMBER OF ATOMS
+	130
+	ITEM: BOX BOUNDS ff pp pp
+	0 30
+	0 30
+	-0.5 0.5
+	ITEM: ATOMS id type x y z ix iy iz*/
+	for (i = 0; i<steps; i++){
+		fprintf(fp, "ITEM: TIMESTEP \n%i\nITEM: NUMBER OF ATOMS\n%i\nITEM: BOX BOUNDS\n%f %f\n%f %f\n%f %f\nITEM: ATOMS id type x y z ix iy iz\n",
+			i, N_ATOMS, -L / 2.0f, L / 2.0f, -L / 2.0f, L / 2.0f, -L / 2.0f, L / 2.0f);
+		stride = i * 3 * N_ATOMS;
+		for (j = 0; j<nparticles; j++)
+			fprintf(fp, "%i %i %f %f %f 0 0 0\n", j + 1, j + 1, data[stride + j], data[stride + j + N_ATOMS], data[stride + j + 2 * N_ATOMS]);
+	}
+	fclose(fp);
+	printf("\n %sfile created \n", filename);
+}
+
 int main(){
 	short int * d_nl;
 	short int * nl;
@@ -515,14 +616,21 @@ int main(){
 	float *r;
 	int f;
 	float d;
+	float *Rtrace;
+	int RNG[MCpasses*3];
 	float * energytrace;
 	float * d_energyblocks;
 	float * energyblocks;
-	/*float * disk;
-	short int *n;*/
+	float * disk;
+	
 	int offset[3];
 	cudaError_t state;
 	
+	srand(time(NULL));
+	for (int i = 0; i < MCpasses*3; i++){
+		RNG[i] = rand();
+	}
+
 	int Ncbrt = int(ceil(cbrt((float)N_ATOMS)));
 	int cboard_index[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 	int i, MC_step;
@@ -537,8 +645,8 @@ int main(){
 	r = (float *)malloc(rsize);
 	energyblocks = (float *)malloc(sizeof(float)*CPS3 / 8);
 	energytrace = (float *)malloc(sizeof(float)*(MCpasses+1));
-	//disk = (float *)malloc(disksize);
-	//n = (short int *)malloc(nsize);
+	disk = (float *)malloc(disksize);
+	Rtrace = (float *)malloc(rsize*MCpasses);
 
 	cudaMalloc((void **)&d_nl, nlsize);
 	cudaMalloc((void **)&d_disk, disksize);
@@ -567,9 +675,7 @@ int main(){
 	if (state != cudaSuccess){
 		printf("Assign kernel failed : %s", cudaGetErrorString(state));
 	}
-	for (MC_step = 0; MC_step < MCpasses + 1; MC_step++){
-		energytrace[MC_step] = 0.0f;
-	}
+
 	//cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
 	//cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
 	//host_print_disk(disk, n);
@@ -587,32 +693,38 @@ int main(){
 			//cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
 
 			//printf("Energy block at MC_step = %i:\t",MC_step);
+			/*printf("\nEnergy change block for MC_step #%i and CB #%i:\n", MC_step+1, i);
+			for (int count = 0; count < CPS3 / 8; count++) {
+				printf("%f\t", energyblocks[count]);
+			}
+			printf("\n");*/
 			for (int k = 1; k < CPS3 / 8; k++){
-				if (energyblocks[k] < -25.0f){ printf("energy shot up for block %i of checkerboard %i at MC_step %i to - %f\n",k,i,MC_step, energyblocks[k]); }
+				//if (energyblocks[k] < -25.0f){ printf("energy shot up for block %i of checkerboard %i at MC_step %i to - %f\n",k,i,MC_step, energyblocks[k]); }
 				energyblocks[0] += energyblocks[k];
 			}
-			//printf("total is %f\n",energyblocks[0]);
 			energytrace[MC_step + 1] += energyblocks[0];
-			//if (energytrace[MC_step + 1] < -50.0f){
-			//	short int totalnum = 0;
-			//	for (int num = 0; num < CPS3; num++){
-			//		totalnum += n[num];
-			//	}
-			//	printf("total atoms are : %i\n", totalnum);
-			//}
 		}
+		/*printf("Number of atoms in cells: \n");
+		for (int num = 0; num < CPS3; num++){
+			printf("%i: %i\t", num, n[num]);
+		}
+		printf("\n");*/
 		energytrace[MC_step + 1] += energytrace[MC_step];
-		f = rand() % 3 - 1;
-		srand(time(NULL));
-		d = float(rand()) / RAND_MAX * w - w / 2.0f;
-		//printf("Shifting by %fw\n", d / w);
+		f = RNG[MC_step] % 3;
+		d = (float)RNG[MC_step + MCpasses] / RAND_MAX * w - w / 2.0f;
+		printf("Shifting by %fw\n", d / w);
 		shiftCells << <1, bs_shiftCells >> >(d_disk, d_n, f, d);
 		state = cudaDeviceSynchronize();
 		if (state != cudaSuccess){
 			printf("Shiftcells failed : %s\n", cudaGetErrorString(state));
 		}
-		printf("Energy at MC step %i is %f\n", MC_step, energytrace[MC_step + 1]);
+		printf("Energy at MC step %i is %f\n", MC_step+1, energytrace[MC_step + 1]);
+		cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
+		cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
+		disk_to_r(Rtrace + MC_step * 3 * N_ATOMS, disk, n);
 	}
+	char s[20] = "dumpR";
+	create_dump(s, Rtrace, MCpasses, N_ATOMS);
 	//cudaMemcpy(nl, d_nl, nlsize, cudaMemcpyDeviceToHost);
 
 	//print_nl(nl, 27 * CPS3, 27);

@@ -2,6 +2,7 @@
 //	Inputs:
 //	f = 0, 1, or 2 => [x,y,z] => direction of cell shift
 //	Converted to dir = [+/-1/0,+/-1/0,+/-1/0] => [+/-x,+/-y,+/-z]
+//	e.g. +x => [+1,0,0]
 
 //	-w/2<d<=w/2 => shift length
 */
