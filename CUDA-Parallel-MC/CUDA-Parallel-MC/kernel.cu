@@ -19,14 +19,26 @@
 #define nmax 10
 #define BLOCK_SIZE 1024
 #define n_M 10
-#define sigma 0.5f
+#define sigma 0.1f
 #define dimCB 8
-#define MCpasses 100
+#define MCpasses 50
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
 
 #include "shiftCells.h"
+
+
+// changed random shuffle to allow curand_uniform to give output greater than 1
+// problems: 
+// 1) energy going to extremely low values:
+//		check if PCB are working
+//		check energy calc and reduction
+//		check shift cells -- UPDATE 1: commented shift cells and run simulation, same problem!
+// 2) d not exactly random -
+//
+//
+
 
 __device__ short int get_cellindex(short int cellx, short int celly, short int cellz){
 	return cellx + celly * cellsPerSide + cellz * CPS2;
@@ -169,7 +181,7 @@ __device__ void swap(float *a, float *b){
 __device__ void random_shuffle(float * ldisk, int atom_counts, int totalAtoms, curandState_t * random_state){
 	int j;
 	for (int i = atom_counts - 1; i >= 0; i--){
-		j = ((int)curand_uniform(random_state)) % (i + 1);
+		j = (int(curand_uniform(random_state)*200)) % (i + 1);
 		for (int dim = 0; dim < 3; dim++){
 			swap(ldisk + i + dim*totalAtoms, ldisk + j + dim*totalAtoms );
 		}
@@ -219,18 +231,19 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 	tx = threadIdx.x;
 	ty = threadIdx.y;
 	tz = threadIdx.z;
+	tindex = tx + ty*blockDim.x + tz*blockDim.x*blockDim.x;
 
 	cellx = 2 * blockIdx.x + offx;
 	celly = 2 * blockIdx.y + offy;
 	cellz = 2 * blockIdx.z + offz;
 	cellId = get_cellindex(cellx, celly, cellz);
-	tindex = tx + ty*blockDim.x + tz*blockDim.x*blockDim.x;
+	
 	if (tindex < 27){
 		nlist_s[tindex] = nl[cellId*27 + tindex];
 		localn_s[tindex] = n[nlist_s[tindex]];
 	}
 	__syncthreads();
-
+	// generate presum and total atoms here
 	if (tindex == 0) {
 		calc_presum(localn_s, presum, 27);
 		totalAtoms = presum[26] + localn_s[26];
@@ -243,6 +256,7 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 	}
 	__syncthreads();
 
+	//generate local copy of disk
 	if (tindex < 27){
 		for (int i = 0; i < localn_s[tindex]; i++){
 			for (int dim = 0; dim < 3; dim++){
@@ -260,7 +274,7 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 	//}
 	curandState_t localRandomState;
 	int id = tindex*blockIdx.x + blockIdx.y + blockIdx.z;
-	curand_init(tindex, id, 0, &localRandomState);
+	curand_init((unsigned long long)clock(), id, 0, &localRandomState);
 	
 	if (tindex == 0){ random_shuffle(ldisk, localn_s[0], totalAtoms, &localRandomState); }
 	__syncthreads();
@@ -291,49 +305,48 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 		if (!rejected){
 			//calculate energy
 				//apply PBC
-			if (tindex < totalAtoms){
+			if (tindex < totalAtoms && tindex != atomInCell_id){
 				r_old = 0;
 				r_new = 0;
-				if (tindex != atomInCell_id){
-					for (dim = 0; dim < 3; dim++){
-						del_old = old_pos[dim] - ldisk[tindex + dim*totalAtoms];
-						del_new = new_pos[dim] - ldisk[tindex + dim*totalAtoms];
-						if (fabs(del_old) > 2 * w){
-							del_old += (2 * (del_old < 0) - 1)*L;
-						}
-						r_old += del_old * del_old;
-						if (fabs(del_new) > 2 * w){
-							del_new += (2 * (del_new < 0) - 1)*L;
-						}
-						r_new += del_new * del_new;
+				for (dim = 0; dim < 3; dim++){
+					del_old = old_pos[dim] - ldisk[tindex + dim*totalAtoms];
+					del_new = new_pos[dim] - ldisk[tindex + dim*totalAtoms];
+					if (fabs(del_old) > 2 * w){
+						del_old += (2 * (del_old < 0) - 1)*L;
 					}
-					r_old = sqrtf(r_old);
-					r_new = sqrtf(r_new);
-					if (r_new > 1.0e-5 && r_new <= w){
-						power6 = __powf(r_new, -6.0);
-						e_new[tindex] = 4.0f * (power6 * power6 - power6);
-						/*if (r_old < 1 && r_old!=0) {
-							printf("r old <1 : %f for atom pair: %i and %i\t\n", r_old,tindex,atomInCell_id);
-							}*/
-						/*if (e_new[tindex] < -1) {
-							printf("Energy too high: %f\n", e_new[tindex]);
-							}*/
+					r_old += del_old * del_old;
+					if (fabs(del_new) > 2 * w){
+						del_new += (2 * (del_new < 0) - 1)*L;
 					}
-					if (r_old > 1.0e-5 && r_old <= w){
-						power6 = __powf(r_old, -6.0);
-						e_old[tindex] = 4.0f * (power6 * power6 - power6);
-						/*if (e_old[tindex] < -1) {
-							printf("Energy too high: %f\n", e_old[tindex]);
-							}
-							if (r_old < 1) {
-							printf("r old <1 : %f", r_old);
-							}*/
-					}
-					//if (cellx + celly + cellz == 0 && tindex == 1){
-					//	for (int z = 0; z < totalAtoms; z++)
-					//		printf("e calculated for atom pair %i and %i is old:%f\t new:%f\n", atomInCell_id, z, e_old[z], e_new[z]);
-					//}
+					r_new += del_new * del_new;
 				}
+				r_old = sqrtf(r_old);
+				r_new = sqrtf(r_new);
+				if (r_new > 1.0e-5 && r_new <= w){
+					power6 = __powf(r_new, -6.0);
+					e_new[tindex] = 4.0f * (power6 * power6 - power6);
+					/*if (r_old < 1 && r_old!=0) {
+						printf("r old <1 : %f for atom pair: %i and %i\t\n", r_old,tindex,atomInCell_id);
+						}*/
+					/*if (e_new[tindex] < -1) {
+						printf("Energy too high: %f\n", e_new[tindex]);
+						}*/
+				}
+				if (r_old > 1.0e-5 && r_old <= w){
+					power6 = __powf(r_old, -6.0);
+					e_old[tindex] = 4.0f * (power6 * power6 - power6);
+					/*if (e_old[tindex] < -1) {
+						printf("Energy too high: %f\n", e_old[tindex]);
+						}
+						if (r_old < 1) {
+						printf("r old <1 : %f", r_old);
+						}*/
+				}
+				//if (e_new[tindex] - e_old){
+				//	for (int z = 0; z < totalAtoms; z++)
+				//		printf("e calculated for atom pair %i and %i is old:%f\t new:%f\n", atomInCell_id, z, e_old[z], e_new[z]);
+				//}
+				
 			}
 			__syncthreads();
 			// reduction
@@ -395,7 +408,11 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 					//if (cellx + celly + cellz == 0){
 					//	printf("\nmove %i accepted, old E = %f, new E = %f\n", move, e_old[5], e_new[5]);
 					//}
-					d_Eblocks[blockIdx.x + blockIdx.y*gridDim.x + blockIdx.z*gridDim.x*gridDim.x] = e_new[0] - e_old[0];
+					temp = e_new[0] - e_old[0];
+					d_Eblocks[blockIdx.x + blockIdx.y*gridDim.x + blockIdx.z*gridDim.x*gridDim.x] = temp;
+					if (temp < -25.0f){ printf("Energy change too high:%f particle: %i, in cell: %i\n new_pos: %f\t%f\t%f\t old_pos:%f\t%f\t%f\t\n", 
+						temp, atomInCell_id, cellId, new_pos[0], new_pos[1], new_pos[2], old_pos[0], old_pos[1], old_pos[2] );
+					}
 				}
 			}
 			__syncthreads();
@@ -493,6 +510,7 @@ int main(){
 	short int * nl;
 	float * d_disk;
 	short int * d_n;
+	short int *n;
 	float * d_r;
 	float *r;
 	int f;
@@ -514,7 +532,8 @@ int main(){
 	int disksize = sizeof(float) * 3 * nmax * CPS3;
 	int rsize = sizeof(float) * 3 * N_ATOMS;
 
-	nl = (short int *)malloc(nlsize); 
+	nl = (short int *)malloc(nlsize);
+	n = (short int *)malloc(nsize);
 	r = (float *)malloc(rsize);
 	energyblocks = (float *)malloc(sizeof(float)*CPS3 / 8);
 	energytrace = (float *)malloc(sizeof(float)*(MCpasses+1));
@@ -565,14 +584,28 @@ int main(){
 				printf("Controversial kernel failed! : %s", cudaGetErrorString(state));
 			}
 			cudaMemcpy(energyblocks, d_energyblocks, sizeof(float)*CPS3 / 8, cudaMemcpyDeviceToHost);
+			//cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
+
+			//printf("Energy block at MC_step = %i:\t",MC_step);
 			for (int k = 1; k < CPS3 / 8; k++){
-				energyblocks[0] += energyblocks[i];
+				if (energyblocks[k] < -25.0f){ printf("energy shot up for block %i of checkerboard %i at MC_step %i to - %f\n",k,i,MC_step, energyblocks[k]); }
+				energyblocks[0] += energyblocks[k];
 			}
+			//printf("total is %f\n",energyblocks[0]);
 			energytrace[MC_step + 1] += energyblocks[0];
+			//if (energytrace[MC_step + 1] < -50.0f){
+			//	short int totalnum = 0;
+			//	for (int num = 0; num < CPS3; num++){
+			//		totalnum += n[num];
+			//	}
+			//	printf("total atoms are : %i\n", totalnum);
+			//}
 		}
-		//energytrace[MC_step + 1] += energytrace[MC_step];
+		energytrace[MC_step + 1] += energytrace[MC_step];
 		f = rand() % 3 - 1;
+		srand(time(NULL));
 		d = float(rand()) / RAND_MAX * w - w / 2.0f;
+		//printf("Shifting by %fw\n", d / w);
 		shiftCells << <1, bs_shiftCells >> >(d_disk, d_n, f, d);
 		state = cudaDeviceSynchronize();
 		if (state != cudaSuccess){
