@@ -7,13 +7,7 @@
 //	-w/2<d<=w/2 => shift length
 */
 
-/*	Stuff remaining:
-//	1. Coordinate transformation												!!DONE!!
-//	2. Comparing only the coordinate that has changed							!!DONE!!
-//	3. f = 0,1,2; d -> (-w/2,w/2]												!!DONE!!
-//	4. Periodic Boundary Conditions 											!!DONE!!
-//	5. s[] across boundary
-*/
+
 __device__ void print_array(float * D_sh, int len){
 	for (int i = 0; i < len; i++){
 		printf("Array[%i] = %f\n", i, D_sh[i]);
@@ -53,29 +47,12 @@ __global__ void shiftCells(float *disk, short int *n, int f, float d) {
 
 	cellId = cid[0] + cid[1] * cellsPerSide + cid[2] * CPS2;
 	nCurr = n[cellId];
-	//if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0) { init_array(shortDisk, nmax*CPS3); }
-	//__syncthreads();
+
 	// Storing local coordinate (only shift direction) in shortDisk
 	for (i = 0; i<nCurr; i++) {
 		shortDisk[cellId*nmax + i] = disk[cellId*nmax * 3 + f*nmax + i] - offset;
 	}
 	__syncthreads();
-	//if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0) { print_array(shortDisk, nmax*CPS3); }
-	//__syncthreads();
-	/*
-	// Coordinate transformation to local coordinates
-	for(i=0; i<nmax; i++) {
-
-	}
-	*/
-
-	/*	// Initializing atom coordinates for the new cell (after shift)
-	for(i=0; i<nmax; i++) {
-	D_sh[i*3+0] = -10;
-	D_sh[i*3+1] = -10;
-	D_sh[i*3+2] = -10;
-	}
-	*/
 
 	nNew = 0;
 	// Checking current cell's atoms
@@ -106,7 +83,6 @@ __global__ void shiftCells(float *disk, short int *n, int f, float d) {
 	for (dim = 0; dim<3; dim++) {
 		s[dim] = w*dir[dim];
 	}
-	//if (cellId == 0){ printf("f is %i, w is %f, dir array is : %f\t%f\t%f\n",f, w, s[0], s[1], s[2]); }
 
 	cellId_nb = cid[0] + cid[1] * cellsPerSide + cid[2] * cellsPerSide*cellsPerSide;
 	nNb = n[cellId_nb];
@@ -115,8 +91,6 @@ __global__ void shiftCells(float *disk, short int *n, int f, float d) {
 		D = shortDisk[cellId_nb*nmax + i] - d;
 
 		if (!(D>0 && D <= w)){
-			//printf("atoms from cell %i have come into cell %i which has offset %f\n", cellId_nb, cellId, offset);
-			//printf("Atom %i at %f in cell %i moved to %f in old cell, and %f in cell %i by adding s[dim] = %f\n", i,D+d,cellId_nb,D,D+s[f],cellId, s[f]);
 			for (dim = 0; dim<3; dim++) {
 				if (dim == f)
 					D_sh[dim*nmax + nNew] = D + offset + s[dim];
@@ -124,21 +98,10 @@ __global__ void shiftCells(float *disk, short int *n, int f, float d) {
 					D_sh[dim*nmax + nNew] = disk[cellId_nb*nmax * 3 + dim*nmax + i];
 			}
 			nNew++;
-			//if (nNew > 0 && threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0) {
-			//	print_array(D_sh, nmax * 3);
-			//}
 		}
 	}
-	//if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0) { printf("After everything!\n");  print_array(D_sh, nmax * 3); }
-
-	// Transform back to global coordinates and store in double-buffered
-	//for(i=0; i<nmax; i++) {
-	//	for(dim=0; dim<3; dim++)
-	//		disk_dbl[cellId*nmax + dim*nmax + i] = D_sh[dim*nmax + i];
-	//}
 
 	__syncthreads();
-	//if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0){ print_array(D_sh, nmax * 3); }
 	n[cellId] = nNew;
 
 	for (i = 0; i<nmax * 3; i++) {

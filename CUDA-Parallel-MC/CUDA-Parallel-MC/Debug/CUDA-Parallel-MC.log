@@ -1,22 +1,20 @@
-﻿Build started 12-15-2015 15:22:31.
+﻿Build started 12-15-2015 21:57:00.
      1>Project "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\CUDA-Parallel-MC.vcxproj" on node 2 (Build target(s)).
      1>AddCudaCompileDeps:
          C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\cl.exe /E /nologo /showIncludes /TP /D__CUDACC__ /DWIN32 /D_DEBUG /D_CONSOLE /D_MBCS /I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" /I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\bin" /I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" /I. /FIcuda_runtime.h /c "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\kernel.cu" 
        CudaBuild:
          Compiling CUDA source file kernel.cu...
-         cmd.exe /C "C:\Users\Ghost\AppData\Local\Temp\tmp0bfeb10ccf854842932899222e36cf06.cmd"
+         cmd.exe /C "C:\Users\Ghost\AppData\Local\Temp\tmpa5691e097b134cb5a6912ba55c9d1da2.cmd"
          "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\bin\nvcc.exe" -gencode=arch=compute_20,code=\"sm_20,compute_20\" --use-local-env --cl-version 2013 -ccbin "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin"  -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include"  -G   --keep-dir Debug -maxrregcount=0  --machine 32 --compile -cudart static  -g   -DWIN32 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Zi /RTC1 /MDd " -o Debug\kernel.cu.obj "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\kernel.cu"
          
          C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\bin\nvcc.exe" -gencode=arch=compute_20,code=\"sm_20,compute_20\" --use-local-env --cl-version 2013 -ccbin "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin"  -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include"  -G   --keep-dir Debug -maxrregcount=0  --machine 32 --compile -cudart static  -g   -DWIN32 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Zi /RTC1 /MDd " -o Debug\kernel.cu.obj "C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\CUDA-Parallel-MC\kernel.cu" 
      1>c:\users\ghost\documents\visual studio 2013\projects\mse485\mse485\cuda-parallel-mc\cuda-parallel-mc\shiftCells.h(33): warning : variable "j" was declared but never referenced
-     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(228): warning : variable "checker_id" was set but never used
-     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(672): warning : variable "nl" was set but never used
+     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(218): warning : variable "checker_id" was set but never used
      1>c:\users\ghost\documents\visual studio 2013\projects\mse485\mse485\cuda-parallel-mc\cuda-parallel-mc\shiftCells.h(33): warning : variable "j" was declared but never referenced
-     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(228): warning : variable "checker_id" was set but never used
-     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(672): warning : variable "nl" was set but never used
+     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(218): warning : variable "checker_id" was set but never used
          kernel.cu
-     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(599): warning C4244: 'argument' : conversion from 'time_t' to 'unsigned int', possible loss of data
-     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(690): warning C4244: 'argument' : conversion from 'time_t' to 'unsigned int', possible loss of data
+     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(472): warning C4244: 'argument' : conversion from 'time_t' to 'unsigned int', possible loss of data
+     1>C:/Users/Ghost/Documents/Visual Studio 2013/Projects/MSE485/MSE485/CUDA-Parallel-MC/CUDA-Parallel-MC/kernel.cu(585): warning C4244: 'argument' : conversion from 'time_t' to 'unsigned int', possible loss of data
        Link:
          C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\link.exe /ERRORREPORT:PROMPT /OUT:"C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\Debug\CUDA-Parallel-MC.exe" /INCREMENTAL /NOLOGO /LIBPATH:"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\lib\Win32" cudart.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\Debug\CUDA-Parallel-MC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\Debug\CUDA-Parallel-MC.lib" /MACHINE:X86 Debug\kernel.cu.obj
          CUDA-Parallel-MC.vcxproj -> C:\Users\Ghost\Documents\Visual Studio 2013\Projects\MSE485\MSE485\CUDA-Parallel-MC\Debug\CUDA-Parallel-MC.exe
@@ -32,4 +30,4 @@
 
 Build succeeded.
 
-Time Elapsed 00:00:07.15
+Time Elapsed 00:00:07.61
