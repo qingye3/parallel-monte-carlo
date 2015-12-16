@@ -10,34 +10,23 @@
 #include <time.h>
 #include <string.h>
 
-#define N_ATOMS 125
+#define N_ATOMS 800
 #define L 10.0f
 #define beta 0.3
 #define cellsPerSide 4
 #define w 2.5f
 #define rc 2.5f
-#define nmax 20
+#define nmax 30
 #define BLOCK_SIZE 1024
-#define n_M 5
+#define n_M 15
 #define sigma 0.5f
 #define dimCB 8
-#define MCpasses 100
+#define MCpasses 1000
 
 const int CPS2 = cellsPerSide*cellsPerSide;
 const int CPS3 = CPS2*cellsPerSide;
 
 #include "shiftCells.h"
-
-
-// changed random shuffle to allow curand_uniform to give output greater than 1
-// problems: 
-// 1) energy going to extremely low values:
-//		check if PCB are working
-//		check energy calc and reduction
-//		check shift cells -- UPDATE 1: commented shift cells and run simulation, same problem!
-// 2) d not exactly random -
-//
-//
 
 
 __device__ short int get_cellindex(short int cellx, short int celly, short int cellz){
@@ -447,7 +436,8 @@ __global__ void subSweep(float*disk, short int* nl, short int* n, int offx, int 
 					accepted = true;
 					//if (cellx + celly + cellz == 0){ printf("\nmove %i accepted, new energy lower!\n", move); }
 				}
-				else if (__expf(-beta*(newE - oldE)) > curand_uniform(&localRandomState)){
+				else if (__expf(-beta*(newE - oldE)) > 2*curand_uniform(&localRandomState)){
+					//printf("%f\t,", temp);
 					accepted = true;
 					//if (cellx + celly + cellz == 0){
 					//	printf("\nmove %i accepted, even though new energy higher! Old E = %f, New E = %f, prob = %f\n", move, oldE,newE, temp);
@@ -733,7 +723,7 @@ int main(){
 		Rtrace[i] = r[i];
 	}
 	energytrace[0] = calc_energy(r);
-	printf("energytrace[0] = %f\n", energytrace[0]);
+	printf("0 : %f\n", energytrace[0]);
 	assign << <int(ceil(float(CPS3) / BLOCK_SIZE)), BLOCK_SIZE >> >(d_r, d_disk, d_n);
 	state = cudaDeviceSynchronize();
 	if (state != cudaSuccess){
@@ -773,7 +763,7 @@ int main(){
 		energytrace[MC_step + 1] += energytrace[MC_step];
 		f = RNG[MC_step] % 3;
 		d = (float)RNG[MC_step + MCpasses] / RAND_MAX * w - w / 2.0f;
-		printf("Shifting in direction %i by %fw\n", f, d / w);
+		//printf("Shifting in direction %i by %fw\n", f, d / w);
 		shiftCells << <1, bs_shiftCells >> >(d_disk, d_n, f, d);
 		//shiftatoms << <int(ceil((float)N_ATOMS / BLOCK_SIZE)), BLOCK_SIZE >> >(d_disk, d_n, d_r, d, f);
 		//cudaDeviceSynchronize();
@@ -783,9 +773,9 @@ int main(){
 		if (state != cudaSuccess){
 			printf("Shiftcells failed : %s\n", cudaGetErrorString(state));
 		}
-		printf("Energy at MC step %i is %f\n\n", MC_step + 1, energytrace[MC_step + 1]);
-		cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
-		cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
+		printf("%i: %f\n", MC_step + 1, energytrace[MC_step + 1]);
+		//cudaMemcpy(disk, d_disk, disksize, cudaMemcpyDeviceToHost);
+		//cudaMemcpy(n, d_n, nsize, cudaMemcpyDeviceToHost);
 
 		/*printf("Number of atoms in cells: \n");
 		for (int num = 0; num < CPS3; num++){
@@ -794,10 +784,10 @@ int main(){
 		printf("\n");
 		*/
 
-		disk_to_r(Rtrace + (MC_step+1) * 3 * N_ATOMS, disk, n);
+		//disk_to_r(Rtrace + (MC_step+1) * 3 * N_ATOMS, disk, n);
 	}
-	char s[20] = "dumpR";
-	create_dump(s, Rtrace, MCpasses, N_ATOMS);
+	//char s[20] = "dumpR3";
+	//create_dump(s, Rtrace, MCpasses, N_ATOMS);
 	//cudaMemcpy(nl, d_nl, nlsize, cudaMemcpyDeviceToHost);
 
 	//print_nl(nl, 27 * CPS3, 27);
